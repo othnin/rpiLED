@@ -1,0 +1,5 @@
+sudo cp systemd/wopr.service /etc/systemd/system/wopr.service
+sudo systemctl daemon-reload
+sudo systemctl enable wopr.service
+sudo systemctl start wopr.service
+sudo journalctl -u wopr.service -f
