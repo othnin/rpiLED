@@ -5,9 +5,11 @@ import threading
 class LoadingBarPattern(PatternBase):
     @property
     def name(self): return "Loading Bar Pattern"
+
+    @property  
+    def description(self): return "Loading Bar Effect"
     
     def run(self, neo, stop_event):
-        print("Num LEDS: ", neo.num_leds)
         while not stop_event.is_set():
             # Fill up - CHECK stop_event in the loop!
             for i in range(neo.num_leds):

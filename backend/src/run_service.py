@@ -28,8 +28,10 @@ def main(socket_path: str = "/tmp/wopr.sock"):
     for hook_event, pattern_name in HOOK_LINKS.items():
         manager.register_startup_pattern(pattern_name, linked_hook=hook_event)
 
-    # Start startup patterns
-    manager.start_startup_patterns()
+    # RESTORE LAST PATTERN (from previous session)
+    if not manager.load_last_pattern():
+        # If no saved pattern, start config defaults
+        manager.start_startup_patterns()
 
     # Start IPC server
     ipc = IPCServer(manager, socket_path=socket_path)
@@ -49,8 +51,8 @@ def main(socket_path: str = "/tmp/wopr.sock"):
         while not stop_event.is_set():
             time.sleep(0.5)
     finally:
-        print("Stopping patterns...")
-        manager.stop_all_patterns()
+        #print("Stopping patterns...")
+        #manager.stop_all_patterns()  //Kills patterns when we want to keep them running but the service is always running.
         print("Stopping IPC server...")
         ipc.stop()
         ipc.join(timeout=2.0)

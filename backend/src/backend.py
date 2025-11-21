@@ -9,9 +9,9 @@ import importlib.util
 import inspect
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import List, Dict, Callable, Optional
+from typing import List, Dict, Callable
 import threading
-
+from config import PATTERN_FILE
 
 class PatternBase(ABC):
     """Base class that all pattern plugins must inherit from"""
@@ -41,10 +41,9 @@ class PatternBase(ABC):
     
     def cleanup(self, neo):
         """Optional cleanup when pattern stops"""
-        print(f"Cleaning up pattern: {self.name}")
+        print("Cleaning up pattern from PatternBasic:", self.name)
         neo.clear_strip()
         neo.update_strip()
-        print(f"Cleaned up pattern: {self.name}")
 
 
 class SystemEventHook(ABC):
@@ -79,18 +78,9 @@ class PatternManager:
         self.current_pattern = None
         self.stop_event = threading.Event()
         self.pattern_thread = None
-        # Thread-safety lock for starting/stopping patterns
-        self._lock = threading.RLock()
-
-        # Patterns to automatically start on manager startup
-        self.startup_patterns: List[str] = []
-        # Optional mapping from hook.event_name -> pattern_name to start
-        self.startup_links: Dict[str, str] = {}
-
-        # Simple callback registry for UI integration (e.g. PyQt signals)
-        # Callbacks are called with a single argument: the pattern name
-        self._callbacks: Dict[str, List[Callable[[str], None]]] = {}
-
+        self.startup_patterns = []
+        self.startup_links = {}
+        
         # Create directories if they don't exist
         self.patterns_dir.mkdir(exist_ok=True)
         self.hooks_dir.mkdir(exist_ok=True)
@@ -179,40 +169,88 @@ class PatternManager:
     
     def start_pattern(self, pattern_name: str):
         """Start running a pattern"""
-        with self._lock:
-            if self.pattern_thread and self.pattern_thread.is_alive():
-                self.stop_pattern()
-
-            pattern = self.patterns.get(pattern_name)
-            if not pattern:
-                raise ValueError(f"Pattern '{pattern_name}' not found")
-
-            self.current_pattern = pattern
-            self.stop_event.clear()
-
-            self.pattern_thread = threading.Thread(
-                target=pattern.run,
-                args=(self.neo, self.stop_event),
-                daemon=True
-            )
-            self.pattern_thread.start()
-            print(f"Started pattern: {pattern_name}")
-            self._emit("pattern_started", pattern_name)
+        if self.pattern_thread and self.pattern_thread.is_alive():
+            self.stop_pattern()
+        
+        pattern = self.patterns.get(pattern_name)
+        if not pattern:
+            raise ValueError(f"Pattern '{pattern_name}' not found")
+        
+        self.current_pattern = pattern
+        self.stop_event.clear()
+        
+        self.pattern_thread = threading.Thread(
+            target=pattern.run,
+            args=(self.neo, self.stop_event),
+            daemon=True
+        )
+        self.pattern_thread.start()
+        print(f"Started pattern: {pattern_name}")
+        
+        # AUTO-SAVE: Remember this pattern for next boot
+        self.save_last_pattern(pattern_name)
     
     def stop_pattern(self):
         """Stop the currently running pattern"""
-        with self._lock:
-            if self.pattern_thread and self.pattern_thread.is_alive():
-                self.stop_event.set()
-                self.pattern_thread.join(timeout=2.0)
+        if self.pattern_thread and self.pattern_thread.is_alive():
+            self.stop_event.set()
+            self.pattern_thread.join(timeout=2.0)
+            
+            if self.current_pattern:
+                self.current_pattern.cleanup(self.neo)
+                print(f"Stopped pattern: {self.current_pattern.name}")
+            
+            self.current_pattern = None
+        
+        # AUTO-SAVE: Clear saved pattern
+        self.clear_last_pattern()
+    
+    def save_last_pattern(self, pattern_name: str):
+        """Save the last pattern to persist across reboots"""
+        try:
+            with open(PATTERN_FILE, 'w') as f:
+                f.write(pattern_name)
+            print(f"Saved last pattern: {pattern_name}")
+        except Exception as e:
+            print(f"Error saving last pattern: {e}")
+    
+    def write_debug_file(self):
+        from datetime import datetime
+        current_datetime = datetime.now()
+        formatted_timestamp = current_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
+        full_file_path = "/opt/wopr/src/debug_file.txt"
+        file_name = "debug_file.txt"
+        try:
+            with open(full_file_path, 'w') as f:
+                f.write(f"Debug - file is being deleted '{formatted_timestamp}'.")
+            print(f"File '{file_name}' saved successfully to.")
+        except IOError as e:
+            print(f"Error saving file: {e}")       
 
-                if self.current_pattern:
-                    name = self.current_pattern.name
-                    self.current_pattern.cleanup(self.neo)
-                    print(f"Stopped pattern: {name}")
-                    self._emit("pattern_stopped", name)
-
-                self.current_pattern = None
+    def clear_last_pattern(self):
+        """Clear the saved pattern"""
+        try:
+            if os.path.exists(PATTERN_FILE):
+                os.remove(PATTERN_FILE)
+                self.write_debug_file()
+                print("Cleared last pattern")
+        except Exception as e:
+            print(f"Error clearing last pattern: {e}")
+    
+    def load_last_pattern(self):
+        """Load and start the last pattern from file"""
+        try:
+            with open(PATTERN_FILE, 'r') as f:
+                pattern_name = f.read().strip()
+                if pattern_name and pattern_name in self.patterns:
+                    print(f"Restoring last pattern: {pattern_name}")
+                    self.start_pattern(pattern_name)
+                    return True
+        except FileNotFoundError:
+            print("No saved pattern found")
+        except Exception as e:
+            print(f"Error loading last pattern: {e}")
+        return False
     
     def check_hooks(self):
         """Check all system hooks and trigger if needed"""
@@ -220,43 +258,9 @@ class PatternManager:
             try:
                 if hook.check():
                     print(f"Event triggered: {hook.event_name}")
-                    # Prefer manager-controlled handling so we can start linked
-                    # patterns automatically. Hooks may still call manager
-                    # directly if needed.
-                    self.handle_hook_trigger(hook)
+                    hook.on_trigger(self)
             except Exception as e:
                 print(f"Error checking hook {hook.event_name}: {e}")
-
-    def handle_hook_trigger(self, hook: SystemEventHook):
-        """Handle a triggered hook.
-
-        If a hook is linked to a pattern via `startup_links` the pattern
-        will be started. Otherwise we call the hook's own on_trigger
-        handler so existing hooks keep working.
-        """
-        linked = self.startup_links.get(hook.event_name)
-        try:
-            if linked:
-                try:
-                    self.start_pattern(linked)
-                except Exception as e:
-                    print(f"Failed to start linked pattern '{linked}': {e}")
-            else:
-                # Fallback to the hook's custom behavior
-                hook.on_trigger(self)
-        except Exception as e:
-            print(f"Error handling hook {hook.event_name}: {e}")
-
-    def register_startup_pattern(self, pattern_name: str, linked_hook: Optional[str] = None):
-        """Register a pattern to automatically start on manager startup.
-
-        If linked_hook is provided the manager will also start the pattern
-        when that hook's event_name triggers.
-        """
-        if pattern_name not in self.startup_patterns:
-            self.startup_patterns.append(pattern_name)
-        if linked_hook:
-            self.startup_links[linked_hook] = pattern_name
 
     def start_startup_patterns(self):
         """Start all patterns registered to start on startup."""
@@ -270,56 +274,61 @@ class PatternManager:
         """Stop any running pattern(s)."""
         self.stop_pattern()
 
-    def register_callback(self, event: str, callback: Callable[[str], None]):
-        """Register a UI callback for events like 'pattern_started' or
-        'pattern_stopped'. The callback will be called with the pattern name.
-        """
-        self._callbacks.setdefault(event, []).append(callback)
+    def register_startup_pattern(self, pattern_name: str, linked_hook: str = None):
+        """Register a pattern to automatically start on manager startup.
 
-    def _emit(self, event: str, pattern_name: str):
-        print(f"Emitting event '{event}' for pattern '{pattern_name}'")
-        for cb in self._callbacks.get(event, []):
-            print(cb)
-            print(pattern_name)
-            try:
-                cb(pattern_name)
-            except Exception as e:
-                print(f"Callback for {event} failed: {e}")
+        If linked_hook is provided the manager will also start the pattern
+        when that hook's event_name triggers.
+        """
+        if pattern_name not in self.startup_patterns:
+            self.startup_patterns.append(pattern_name)
+        if linked_hook:
+            self.startup_links[linked_hook] = pattern_name
+        print(f"Registered startup pattern: {pattern_name}" + 
+              (f" (linked to hook: {linked_hook})" if linked_hook else ""))
+
+    def save_startup_patterns(self, filepath: str = "/tmp/wopr_startup.txt"):
+        """Save startup patterns to file"""
+        try:
+            with open(filepath, 'w') as f:
+                for pattern in self.startup_patterns:
+                    f.write(f"{pattern}\n")
+            print(f"Saved {len(self.startup_patterns)} startup patterns to {filepath}")
+        except Exception as e:
+            print(f"Error saving startup patterns: {e}")
+
+    def load_startup_patterns_from_file(self, filepath: str = "/tmp/wopr_startup.txt"):
+        """Load startup patterns from file"""
+        try:
+            with open(filepath, 'r') as f:
+                for line in f:
+                    pattern_name = line.strip()
+                    if pattern_name and pattern_name in self.patterns:
+                        self.startup_patterns.append(pattern_name)
+            print(f"Loaded {len(self.startup_patterns)} startup patterns from {filepath}")
+        except FileNotFoundError:
+            print(f"No startup patterns file found at {filepath}")
+        except Exception as e:
+            print(f"Error loading startup patterns: {e}")
 
 
 # Example usage and testing
 if __name__ == "__main__":
     from pi5neo import Pi5Neo
-    from config import (
-        NEO_DEVICE,
-        NEO_NUM_LEDS,
-        NEO_SPI_SPEED,
-        STARTUP_PATTERNS,
-        HOOK_LINKS,
-    )
-
+    
     # Initialize NeoPixel strip
-    neo = Pi5Neo(NEO_DEVICE, NEO_NUM_LEDS, NEO_SPI_SPEED)
-
+    neo = Pi5Neo('/dev/spidev0.0', 17, 800)
+    
     # Initialize manager
     manager = PatternManager(neo)
-
+    
     # Load plugins
     patterns = manager.load_patterns()
     print(f"\nAvailable patterns: {patterns}")
-
+    
     hooks = manager.load_hooks()
     print(f"Active hooks: {hooks}")
-
-    # Register any configured startup patterns and hook links
-    for p in STARTUP_PATTERNS:
-        manager.register_startup_pattern(p)
-    for hook_event, pattern_name in HOOK_LINKS.items():
-        manager.register_startup_pattern(pattern_name, linked_hook=hook_event)
-
-    # Start startup patterns (if any)
-    manager.start_startup_patterns()
-
+    
     # Get pattern info
     for info in manager.get_all_patterns_info():
         print(f"\n{info['name']}: {info['description']}")

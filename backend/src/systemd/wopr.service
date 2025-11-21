@@ -1,0 +1,17 @@
+[Unit]
+Description=WOPR LED Service
+After=network.target
+
+[Service]
+Type=simple
+User=achilles
+WorkingDirectory=/opt/WOPR/backend/src
+ExecStart=/opt/WOPR/backend/venv/bin/python3 /opt/WOPR/backend/src/run_service.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.targets

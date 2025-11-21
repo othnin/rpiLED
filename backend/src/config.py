@@ -16,3 +16,7 @@ STARTUP_PATTERNS = []  # e.g. ["My Pattern"]
 # the matching event_name triggers, the linked pattern will be started
 # automatically by the manager.
 HOOK_LINKS = {}  # e.g. {"cpu_over_20": "Loading Bar Pattern"}
+
+
+PATTERN_FILE = '/opt/WOPR/backend/config/last_pattern.txt'
+HOOK_FILE =    '/opt/WOPR/backend/config/last_hook.txt'

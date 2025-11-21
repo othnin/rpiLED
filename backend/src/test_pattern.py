@@ -11,7 +11,7 @@ import sys
 
 def main():
     # Configuration
-    PATTERN_NAME = "Loading Bar Pattern"  # Change this to test different patterns
+    PATTERN_NAME = "Knight Rider Pattern"  # Change this to test different patterns
     RUN_TIME = 30  # How long to run the pattern (seconds)
     
     print("Initializing NeoPixel strip...")

@@ -125,6 +125,7 @@ class IPCServer(threading.Thread):
             conn.sendall(json.dumps(payload).encode("utf-8"))
         except Exception:
             pass
+        
 
     def _handle_action(self, action: str, params: dict) -> dict:
         try:
@@ -178,10 +179,12 @@ class IPCServer(threading.Thread):
             if action == "list_startup":
                 return {"ok": True, "result": {"startup_patterns": list(self.manager.startup_patterns), "startup_links": dict(self.manager.startup_links)}}
 
+            
             if action == "shutdown":
                 # Stop patterns and return
                 self.manager.stop_all_patterns()
                 return {"ok": True, "result": "shutting_down"}
+            
 
             return {"ok": False, "error": f"unknown action {action}"}
 
