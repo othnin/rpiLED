@@ -11,11 +11,11 @@ import threading
 from pi5neo import Pi5Neo
 from backend import PatternManager
 from ipc_server import IPCServer
-from config import NEO_DEVICE, NEO_NUM_LEDS, NEO_SPI_SPEED, STARTUP_PATTERNS, HOOK_LINKS
+from config import DEVICE, NUM_LEDS, SPI_SPEED, STARTUP_PATTERNS, HOOK_LINKS
 
 
 def main(socket_path: str = "/tmp/wopr.sock"):
-    neo = Pi5Neo(NEO_DEVICE, NEO_NUM_LEDS, NEO_SPI_SPEED)
+    neo = Pi5Neo(DEVICE, NUM_LEDS, SPI_SPEED)
     manager = PatternManager(neo)
 
     # Load patterns and hooks
@@ -29,7 +29,7 @@ def main(socket_path: str = "/tmp/wopr.sock"):
         manager.register_startup_pattern(pattern_name, linked_hook=hook_event)
 
     # RESTORE LAST PATTERN (from previous session)
-    if not manager.load_last_pattern():
+    if not manager.load_pattern():
         # If no saved pattern, start config defaults
         manager.start_startup_patterns()
 

@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Dict, Callable
 import threading
-from config import PATTERN_FILE
+from config import PATTERN_FILE, PATTERN_LOCATION, HOOK_FILE, 
 
 class PatternBase(ABC):
     """Base class that all pattern plugins must inherit from"""
@@ -187,8 +187,6 @@ class PatternManager:
         self.pattern_thread.start()
         print(f"Started pattern: {pattern_name}")
         
-        # AUTO-SAVE: Remember this pattern for next boot
-        self.save_last_pattern(pattern_name)
     
     def stop_pattern(self):
         """Stop the currently running pattern"""
@@ -203,17 +201,20 @@ class PatternManager:
             self.current_pattern = None
         
         # AUTO-SAVE: Clear saved pattern
-        self.clear_last_pattern()
+        self.clear_pattern()
     
-    def save_last_pattern(self, pattern_name: str):
-        """Save the last pattern to persist across reboots"""
+    def save_pattern(self, pattern_name: str):
+        """Save the pattern to persist across reboots"""
+        file_name = file_name = os.path.join(PATTERN_LOCATION, PATTERN_FILE)
         try:
-            with open(PATTERN_FILE, 'w') as f:
+            os.makedirs(PATTERN_LOCATION, exist_ok=True) 
+            with open(file_name, 'w') as f:
                 f.write(pattern_name)
-            print(f"Saved last pattern: {pattern_name}")
+            print(f"Saved pattern: {pattern_name}")
         except Exception as e:
-            print(f"Error saving last pattern: {e}")
+            print(f"Error saving pattern: {e}")
     
+    '''
     def write_debug_file(self):
         from datetime import datetime
         current_datetime = datetime.now()
@@ -226,30 +227,32 @@ class PatternManager:
             print(f"File '{file_name}' saved successfully to.")
         except IOError as e:
             print(f"Error saving file: {e}")       
+    '''
 
-    def clear_last_pattern(self):
+    def clear_pattern(self):
         """Clear the saved pattern"""
+        file_name = file_name = os.path.join(PATTERN_LOCATION, PATTERN_FILE)
         try:
-            if os.path.exists(PATTERN_FILE):
-                os.remove(PATTERN_FILE)
-                self.write_debug_file()
-                print("Cleared last pattern")
+            if os.path.exists(file_name):
+                os.remove(file_name)
+                print("Cleared pattern")
         except Exception as e:
-            print(f"Error clearing last pattern: {e}")
+            print(f"Error clearing pattern: {e}")
     
-    def load_last_pattern(self):
-        """Load and start the last pattern from file"""
+    def load_pattern(self):
+        """Load and start the pattern from file"""
+        file_name = file_name = os.path.join(PATTERN_LOCATION, PATTERN_FILE)
         try:
-            with open(PATTERN_FILE, 'r') as f:
+            with open(file_name, 'r') as f:
                 pattern_name = f.read().strip()
                 if pattern_name and pattern_name in self.patterns:
-                    print(f"Restoring last pattern: {pattern_name}")
+                    print(f"Restoring pattern: {pattern_name}")
                     self.start_pattern(pattern_name)
                     return True
         except FileNotFoundError:
             print("No saved pattern found")
         except Exception as e:
-            print(f"Error loading last pattern: {e}")
+            print(f"Error loading pattern: {e}")
         return False
     
     def check_hooks(self):
@@ -317,7 +320,7 @@ if __name__ == "__main__":
     from pi5neo import Pi5Neo
     
     # Initialize NeoPixel strip
-    neo = Pi5Neo('/dev/spidev0.0', 17, 800)
+    neo = Pi5Neo(DEVICE, NUM_LEDS, SPI_SPEED)
     
     # Initialize manager
     manager = PatternManager(neo)
