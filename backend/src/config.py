@@ -19,5 +19,5 @@ HOOK_LINKS = {}  # e.g. {"cpu_over_20": "Loading Bar Pattern"}
 
 
 PATTERN_FILE = 'pattern.txt'
-PATTERN_LOCATION = "/opt/WOPR/backend/config/"
+PATTERN_LOCATION = "/opt/WOPR/backend/data/"
 HOOK_FILE =    'hook.txt'

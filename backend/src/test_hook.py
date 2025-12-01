@@ -29,16 +29,16 @@ def cpu_load_simulator(duration: float, intensity: float = 1.0):
 
 def main():
     # Configuration
-    PATTERN_NAME = "Loading Bar Pattern"
+    PATTERN_NAME = "Knight Rider Pattern"
     TEST_DURATION = 60  # How long to monitor CPU (seconds)
     CHECK_INTERVAL = 2  # How often to check CPU (seconds)
     
     print("Initializing NeoPixel strip...")
     print("Note: CPU load simulator will run in background to trigger the hook\n")
-    from config import NEO_DEVICE, NEO_NUM_LEDS, NEO_SPI_SPEED
+    from config import DEVICE, NUM_LEDS, SPI_SPEED
     
     # Initialize NeoPixel strip
-    neo = Pi5Neo(NEO_DEVICE, NEO_NUM_LEDS, NEO_SPI_SPEED)
+    neo = Pi5Neo(DEVICE, NUM_LEDS, SPI_SPEED)
     print(f"Strip has {neo.num_leds} LEDs")
     
     print("\nInitializing Pattern Manager...")

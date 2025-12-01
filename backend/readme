@@ -14,3 +14,5 @@ printf '{"action":"start_pattern","params":{"name":"Loading Bar Pattern"}}' | so
 printf '{"action":"stop_pattern"}' | socat - UNIX-CONNECT:/tmp/wopr.sock
 # Get status
 printf '{"action":"status"}' | socat - UNIX-CONNECT:/tmp/wopr.sock
+# Save Pattern
+printf '{"action":"save_pattern", "params":{"name":"Loading Bar Pattern"}}' | socat - UNIX-CONNECT:/tmp/wopr

@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Dict, Callable
 import threading
-from config import PATTERN_FILE, PATTERN_LOCATION, HOOK_FILE, 
+from config import PATTERN_FILE, PATTERN_LOCATION, HOOK_FILE 
 
 class PatternBase(ABC):
     """Base class that all pattern plugins must inherit from"""
@@ -199,7 +199,6 @@ class PatternManager:
                 print(f"Stopped pattern: {self.current_pattern.name}")
             
             self.current_pattern = None
-        
         # AUTO-SAVE: Clear saved pattern
         self.clear_pattern()
     
@@ -214,21 +213,6 @@ class PatternManager:
         except Exception as e:
             print(f"Error saving pattern: {e}")
     
-    '''
-    def write_debug_file(self):
-        from datetime import datetime
-        current_datetime = datetime.now()
-        formatted_timestamp = current_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
-        full_file_path = "/opt/wopr/src/debug_file.txt"
-        file_name = "debug_file.txt"
-        try:
-            with open(full_file_path, 'w') as f:
-                f.write(f"Debug - file is being deleted '{formatted_timestamp}'.")
-            print(f"File '{file_name}' saved successfully to.")
-        except IOError as e:
-            print(f"Error saving file: {e}")       
-    '''
-
     def clear_pattern(self):
         """Clear the saved pattern"""
         file_name = file_name = os.path.join(PATTERN_LOCATION, PATTERN_FILE)

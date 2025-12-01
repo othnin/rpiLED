@@ -154,6 +154,14 @@ class IPCServer(threading.Thread):
                 cur = self.manager.current_pattern.name if self.manager.current_pattern else None
                 return {"ok": True, "result": {"current_pattern": cur}}
 
+            if action == "save_pattern":
+                name = params.get("name")
+                if not name:
+                    return {"ok": False, "error": "missing name"}
+                self.manager.save_pattern(name)
+                return {"ok": True, "result": "saved"}
+
+
             if action == "register_startup":
                 name = params.get("name")
                 if not name:
@@ -161,6 +169,8 @@ class IPCServer(threading.Thread):
                 linked_hook = params.get("linked_hook")
                 self.manager.register_startup_pattern(name, linked_hook=linked_hook)
                 return {"ok": True, "result": "registered"}
+
+
 
             if action == "unregister_startup":
                 name = params.get("name")

@@ -261,7 +261,8 @@ class WOPRControlGUI(QMainWindow):
             return
         
         pattern_name = current.text()
-        response = self.send_ipc_command("register_startup", {"name": pattern_name})
+        #response = self.send_ipc_command("register_startup", {"name": pattern_name})
+        response = self.send_ipc_command("save_pattern", {"name": pattern_name})
         
         if response.get("ok"):
             self.status_bar.showMessage(f"Added {pattern_name} to startup", 3000)

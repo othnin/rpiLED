@@ -10,12 +10,11 @@ class KnightRiderPattern(PatternBase):
     @property  
     def description(self): return "Knight Rider or Cylon Effect"
 
-    def run(self, neo, stop_event):
-        color = (255, 0, 0)  # Red color
+    def run(self, neo, stop_event, color = (255, 0, 0)):
         delay = 0.05  # Delay between LED updates
         num_leds = neo.num_leds
         
-        while not stop_event.is_set():  # ← FIXED: was "while True"
+        while not stop_event.is_set():  
             # Forward pass
             for i in range(num_leds):
                 if stop_event.is_set():  # ← ADDED: check stop
@@ -30,7 +29,7 @@ class KnightRiderPattern(PatternBase):
                 
             # Backward pass
             for i in range(num_leds - 1, -1, -1):
-                if stop_event.is_set():  # ← ADDED: check stop
+                if stop_event.is_set():  
                     return  # Exit immediately
                 neo.fill_strip(0, 0, 0)  # Clear the strip
                 neo.set_led_color(i, *color)  # Set the current LED to the color
