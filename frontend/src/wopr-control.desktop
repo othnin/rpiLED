@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=WOPR LED Control
+Comment=Control WOPR LED patterns and hooks
+Exec=/opt/WOPR/frontend/src/wopr-control.sh
+Icon=/opt/WOPR/frontend/src/wopr-icon.png
+Terminal=false
+Categories=Utility;System;Settings;
+Keywords=LED;Control;WOPR;Pattern;NeoPixel;
+StartupNotify=true
+
+

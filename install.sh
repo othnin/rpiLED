@@ -1,0 +1,359 @@
+#!/bin/bash
+#
+# WOPR LED Control System Installer
+# One-line install: curl -sSL https://raw.githubusercontent.com/YOUR_USERNAME/WOPR/main/install.sh | bash
+#
+# This script will:
+# - Install system dependencies
+# - Clone the WOPR repository
+# - Set up Python virtual environments for backend and GUI
+# - Install the systemd service
+# - Configure desktop shortcuts
+# - Set up SPI for NeoPixels
+
+set -e  # Exit on any error
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Configuration
+INSTALL_DIR="/opt/WOPR"
+DATA_DIR="/opt/WOPR/data"
+REPO_URL="https://github.com/YOUR_USERNAME/WOPR.git"
+BRANCH="main"
+SERVICE_USER="${SUDO_USER:-$USER}"
+
+# Logging functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Banner
+echo -e "${BLUE}"
+cat << "EOF"
+╦ ╦╔═╗╔═╗╦═╗  ╦  ╔═╗╔╦╗  ╔═╗╦ ╦╔═╗╔╦╗╔═╗╔╦╗
+║║║║ ║╠═╝╠╦╝  ║  ║╣  ║║  ╚═╗╚╦╝╚═╗ ║ ║╣ ║║║
+╚╩╝╚═╝╩  ╩╚═  ╩═╝╚═╝═╩╝  ╚═╝ ╩ ╚═╝ ╩ ╚═╝╩ ╩
+         Installer for Raspberry Pi
+EOF
+echo -e "${NC}"
+
+# Check if running on Raspberry Pi
+if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null && ! grep -q "BCM" /proc/cpuinfo 2>/dev/null; then
+    log_warning "This doesn't appear to be a Raspberry Pi. Installation may not work correctly."
+    read -p "Continue anyway? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
+# Check if running as root
+if [ "$EUID" -ne 0 ]; then 
+    log_error "Please run as root (use sudo)"
+    exit 1
+fi
+
+# Verify we have a normal user set
+if [ -z "$SERVICE_USER" ]; then
+    log_error "Could not determine the user. Please run with sudo, not as root."
+    exit 1
+fi
+
+log_info "Installing WOPR LED Control System for user: $SERVICE_USER"
+log_info "Installation directory: $INSTALL_DIR"
+
+# Ask for confirmation
+read -p "Continue with installation? (y/N) " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    log_info "Installation cancelled"
+    exit 0
+fi
+
+# ============================================================================
+# STEP 1: System Dependencies
+# ============================================================================
+log_info "Installing system dependencies..."
+
+apt-get update
+apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-venv \
+    git \
+    spi-bcm2835 \
+    libgpiod2 \
+    python3-gpiod \
+    libxcb-cursor0 \
+    libxcb-icccm4 \
+    libxcb-image0 \
+    libxcb-keysyms1 \
+    libxcb-randr0 \
+    libxcb-render-util0 \
+    libxcb-shape0 \
+    libxcb-xfixes0 \
+    libxcb-xinerama0 \
+    libxkbcommon-x11-0
+
+log_success "System dependencies installed"
+
+# ============================================================================
+# STEP 2: Enable SPI
+# ============================================================================
+log_info "Enabling SPI interface..."
+
+if ! grep -q "^dtparam=spi=on" /boot/config.txt; then
+    echo "dtparam=spi=on" >> /boot/config.txt
+    log_warning "SPI enabled. A reboot will be required after installation."
+    NEEDS_REBOOT=1
+else
+    log_info "SPI already enabled"
+fi
+
+# Load SPI module if not loaded
+if ! lsmod | grep -q spi_bcm2835; then
+    modprobe spi_bcm2835 || log_warning "Could not load SPI module (may require reboot)"
+fi
+
+# ============================================================================
+# STEP 3: Clone Repository
+# ============================================================================
+log_info "Cloning WOPR repository..."
+
+if [ -d "$INSTALL_DIR" ]; then
+    log_warning "Installation directory already exists"
+    read -p "Remove existing installation and reinstall? (y/N) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        # Stop service if running
+        systemctl stop wopr.service 2>/dev/null || true
+        rm -rf "$INSTALL_DIR"
+    else
+        log_info "Installation cancelled"
+        exit 0
+    fi
+fi
+
+git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
+log_success "Repository cloned"
+
+# ============================================================================
+# STEP 4: Set Permissions
+# ============================================================================
+log_info "Setting up permissions..."
+
+chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+mkdir -p "$DATA_DIR"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
+
+log_success "Permissions set"
+
+# ============================================================================
+# STEP 5: Backend Virtual Environment
+# ============================================================================
+log_info "Setting up backend virtual environment..."
+
+cd "$INSTALL_DIR/backend"
+sudo -u "$SERVICE_USER" python3 -m venv venv
+sudo -u "$SERVICE_USER" venv/bin/pip install --upgrade pip
+sudo -u "$SERVICE_USER" venv/bin/pip install -r requirements.txt
+
+log_success "Backend environment configured"
+
+# ============================================================================
+# STEP 6: GUI Virtual Environment
+# ============================================================================
+log_info "Setting up GUI virtual environment..."
+
+cd "$INSTALL_DIR/frontend"
+sudo -u "$SERVICE_USER" python3 -m venv venv
+sudo -u "$SERVICE_USER" venv/bin/pip install --upgrade pip
+sudo -u "$SERVICE_USER" venv/bin/pip install PySide6
+
+log_success "GUI environment configured"
+
+# ============================================================================
+# STEP 7: Install Systemd Service
+# ============================================================================
+log_info "Installing systemd service..."
+
+# Copy service file from repository
+if [ -f "$INSTALL_DIR/backend/systemd/wopr.service" ]; then
+    cp "$INSTALL_DIR/backend/systemd/wopr.service" /etc/systemd/system/wopr.service
+    
+    # Update paths in service file to match installation
+    sed -i "s|/opt/WOPR|$INSTALL_DIR|g" /etc/systemd/system/wopr.service
+    sed -i "s|User=.*|User=$SERVICE_USER|g" /etc/systemd/system/wopr.service
+    
+    log_success "Service file installed"
+else
+    log_error "Service file not found at $INSTALL_DIR/backend/systemd/wopr.service"
+    exit 1
+fi
+
+# Reload systemd and enable service
+systemctl daemon-reload
+systemctl enable wopr.service
+systemctl start wopr.service
+
+log_success "Service installed and started"
+
+# ============================================================================
+# STEP 8: Create GUI Icon
+# ============================================================================
+log_info "Creating GUI icon..."
+
+# Check if icon exists in repository, if not create a simple one
+if [ ! -f "$INSTALL_DIR/frontend/src/wopr-icon.png" ]; then
+    log_info "Icon not found in repository, generating default icon..."
+    
+    # Try to create a simple icon using ImageMagick
+    if command -v convert &> /dev/null; then
+        # Create a 128x128 icon with LED-style design
+        convert -size 128x128 xc:black \
+            -fill '#00ff00' -draw "circle 64,64 50,64" \
+            -fill '#00cc00' -draw "circle 64,64 40,64" \
+            -fill '#009900' -draw "circle 64,64 30,64" \
+            -fill black -draw "circle 64,64 20,64" \
+            "$INSTALL_DIR/frontend/src//wopr-icon.png" 2>/dev/null || \
+            log_warning "Could not create icon with ImageMagick"
+    else
+        log_warning "ImageMagick not found. Install with: sudo apt-get install imagemagick"
+        log_info "Using system default icon instead"
+    fi
+fi
+
+# Set ownership
+if [ -f "$INSTALL_DIR/frontend/src/wopr-icon.png" ]; then
+    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/gui/wopr-icon.png"
+    log_success "Icon ready"
+fi
+
+# ============================================================================
+# STEP 9: Setup GUI Launcher
+# ============================================================================
+log_info "Setting up GUI launcher..."
+
+# Verify launcher script exists in repository
+if [ ! -f "$INSTALL_DIR/frontend/src/wopr-control.sh" ]; then
+    log_error "Launcher script not found at $INSTALL_DIR/frontend/src/wopr-control.sh"
+    exit 1
+fi
+
+# Update paths in launcher script to match installation directory
+sed -i "s|/opt/WOPR|$INSTALL_DIR|g" "$INSTALL_DIR/frontend/src/wopr-control.sh"
+
+# Make launcher executable
+chmod +x "$INSTALL_DIR/frontend/src/wopr-control.sh"
+chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/frontend/src/wopr-control.sh"
+
+log_success "Launcher script configured"
+
+# Verify desktop file exists in repository
+if [ ! -f "$INSTALL_DIR/frontend/src/wopr-control.desktop" ]; then
+    log_error "Desktop file not found at $INSTALL_DIR/frontend/src/wopr-control.desktop"
+    exit 1
+fi
+
+# Update paths in desktop file to match installation directory
+sed -i "s|/opt/WOPR|$INSTALL_DIR|g" "$INSTALL_DIR/frontend/src/wopr-control.desktop"
+
+# Install desktop file to user's applications
+mkdir -p /home/$SERVICE_USER/.local/share/applications
+cp "$INSTALL_DIR/frontend/src/wopr-control.desktop" /home/$SERVICE_USER/.local/share/applications/
+chown "$SERVICE_USER:$SERVICE_USER" /home/$SERVICE_USER/.local/share/applications/wopr-control.desktop
+
+log_success "Desktop file installed"
+
+# Create desktop shortcut if Desktop exists
+if [ -d "/home/$SERVICE_USER/Desktop" ]; then
+    cp "$INSTALL_DIR/frontend/src/wopr-control.desktop" /home/$SERVICE_USER/Desktop/
+    chmod +x /home/$SERVICE_USER/Desktop/wopr-control.desktop
+    chown "$SERVICE_USER:$SERVICE_USER" /home/$SERVICE_USER/Desktop/wopr-control.desktop
+    
+    # Trust the desktop file (required on newer Pi OS)
+    sudo -u "$SERVICE_USER" gio set /home/$SERVICE_USER/Desktop/wopr-control.desktop metadata::trusted true 2>/dev/null || true
+    
+    log_success "Desktop shortcut created"
+fi
+
+log_success "GUI launcher ready"
+
+# ============================================================================
+# STEP 10: Add User to SPI Group
+# ============================================================================
+log_info "Adding user to necessary groups..."
+
+usermod -a -G spi,gpio "$SERVICE_USER" 2>/dev/null || log_warning "Could not add user to groups"
+
+log_success "User groups configured"
+
+# ============================================================================
+# STEP 11: Verify Installation
+# ============================================================================
+log_info "Verifying installation..."
+
+# Check service status
+if systemctl is-active --quiet wopr.service; then
+    log_success "WOPR service is running"
+else
+    log_warning "WOPR service is not running. Check logs with: sudo journalctl -u wopr.service"
+fi
+
+# Check socket
+if [ -e "/tmp/wopr.sock" ]; then
+    log_success "IPC socket created"
+else
+    log_warning "IPC socket not found. Service may need time to start."
+fi
+
+# ============================================================================
+# Installation Complete
+# ============================================================================
+echo
+echo -e "${GREEN}╔════════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║                                                        ║${NC}"
+echo -e "${GREEN}║         WOPR LED Control System Installed!             ║${NC}"
+echo -e "${GREEN}║                                                        ║${NC}"
+echo -e "${GREEN}╚════════════════════════════════════════════════════════╝${NC}"
+echo
+log_info "Installation directory: $INSTALL_DIR"
+log_info "Service status: systemctl status wopr.service"
+log_info "Service logs: journalctl -u wopr.service -f"
+log_info "GUI launcher: Applications menu → WOPR LED Control"
+echo
+
+if [ "${NEEDS_REBOOT}" = "1" ]; then
+    echo -e "${YELLOW}╔════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${YELLOW}║  REBOOT REQUIRED for SPI changes to take effect!      ║${NC}"
+    echo -e "${YELLOW}╚════════════════════════════════════════════════════════╝${NC}"
+    echo
+    read -p "Reboot now? (y/N) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Rebooting..."
+        reboot
+    fi
+else
+    log_success "Installation complete! No reboot required."
+    log_info "You can now launch the WOPR Control GUI from the Applications menu"
+fi
+
+exit 0
