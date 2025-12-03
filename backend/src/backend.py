@@ -7,6 +7,7 @@ Works with Pi5Neo library
 import os
 import importlib.util
 import inspect
+import queue
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Dict, Callable
@@ -29,13 +30,14 @@ class PatternBase(ABC):
         pass
     
     @abstractmethod
-    def run(self, neo, stop_event: threading.Event):
+    def run(self, neo, stop_event: threading.Event, alert_queue=None):
         """
         Execute the pattern
         
         Args:
             neo: The Pi5Neo strip object
             stop_event: Threading event to signal when to stop
+            alert_queue: Optional queue.Queue for receiving HookMessage alerts from hooks
         """
         pass
     
@@ -64,6 +66,14 @@ class SystemEventHook(ABC):
     def on_trigger(self, pattern_manager):
         """Action to take when event triggers"""
         pass
+    
+    def get_message(self):
+        """
+        Optional: Generate a HookMessage to send to patterns.
+        Override this in subclasses that support multi-level alerts.
+        Returns a HookMessage object or None.
+        """
+        return None
 
 
 class PatternManager:
@@ -80,6 +90,7 @@ class PatternManager:
         self.pattern_thread = None
         self.startup_patterns = []
         self.startup_links = {}
+        self.alert_queue = queue.Queue()  # Queue for hook messages to patterns
         
         # Create directories if they don't exist
         self.patterns_dir.mkdir(exist_ok=True)
@@ -178,10 +189,12 @@ class PatternManager:
         
         self.current_pattern = pattern
         self.stop_event.clear()
+        # Create a fresh alert queue for this pattern
+        self.alert_queue = queue.Queue()
         
         self.pattern_thread = threading.Thread(
             target=pattern.run,
-            args=(self.neo, self.stop_event),
+            args=(self.neo, self.stop_event, self.alert_queue),
             daemon=True
         )
         self.pattern_thread.start()
@@ -245,9 +258,125 @@ class PatternManager:
             try:
                 if hook.check():
                     print(f"Event triggered: {hook.event_name}")
-                    hook.on_trigger(self)
+                    
+                    # Check if this hook is linked to a pattern
+                    linked_pattern = self.startup_links.get(hook.event_name)
+                    
+                    # Try to send alert message to currently running pattern
+                    if self.current_pattern and hasattr(self, 'alert_queue'):
+                        message = hook.get_message()
+                        if message:
+                            try:
+                                self.alert_queue.put_nowait(message)
+                                print(f"Sent alert from {hook.event_name} to running pattern: {message}")
+                            except queue.Full:
+                                print(f"Alert queue full, message from {hook.event_name} dropped")
+                    
+                    if linked_pattern and linked_pattern in self.patterns:
+                        print(f"Starting linked pattern: {linked_pattern}")
+                        self.start_pattern(linked_pattern)
+                    elif not self.current_pattern:
+                        # Fall back to hook's own on_trigger if no pattern running
+                        hook.on_trigger(self)
             except Exception as e:
                 print(f"Error checking hook {hook.event_name}: {e}")
+    
+    def save_persistent_link(self, hook_event_name: str, pattern_name: str):
+        """Save a hook-pattern link to persistent storage"""
+        try:
+            data = self.load_persistent_data()
+            if "linked" not in data:
+                data["linked"] = {}
+            data["linked"][hook_event_name] = pattern_name
+            
+            self._write_persistent_data(data)
+            print(f"Saved persistent link: {hook_event_name} → {pattern_name}")
+        except Exception as e:
+            print(f"Error saving persistent link: {e}")
+    
+    def remove_persistent_link(self, hook_event_name: str):
+        """Remove a hook-pattern link from persistent storage"""
+        try:
+            data = self.load_persistent_data()
+            if "linked" in data and hook_event_name in data["linked"]:
+                del data["linked"][hook_event_name]
+                self._write_persistent_data(data)
+                print(f"Removed persistent link: {hook_event_name}")
+        except Exception as e:
+            print(f"Error removing persistent link: {e}")
+    
+    def save_pattern_to_startup(self, pattern_name: str):
+        """Add a standalone pattern to persistent startup (no hook required)"""
+        try:
+            data = self.load_persistent_data()
+            if "standalone" not in data:
+                data["standalone"] = []
+            if pattern_name not in data["standalone"]:
+                data["standalone"].append(pattern_name)
+            
+            self._write_persistent_data(data)
+            print(f"Added standalone startup pattern: {pattern_name}")
+        except Exception as e:
+            print(f"Error saving standalone pattern: {e}")
+    
+    def remove_pattern_from_startup(self, pattern_name: str):
+        """Remove a standalone pattern from persistent startup"""
+        try:
+            data = self.load_persistent_data()
+            if "standalone" in data and pattern_name in data["standalone"]:
+                data["standalone"].remove(pattern_name)
+                self._write_persistent_data(data)
+                print(f"Removed standalone startup pattern: {pattern_name}")
+        except Exception as e:
+            print(f"Error removing standalone pattern: {e}")
+    
+    def load_persistent_links(self) -> dict:
+        """Load hook-pattern links from persistent storage (returns only linked patterns)"""
+        try:
+            data = self.load_persistent_data()
+            return data.get("linked", {})
+        except Exception as e:
+            print(f"Error loading persistent links: {e}")
+        return {}
+    
+    def load_startup_patterns_list(self) -> list:
+        """Load standalone startup patterns from persistent storage"""
+        try:
+            data = self.load_persistent_data()
+            return data.get("standalone", [])
+        except Exception as e:
+            print(f"Error loading startup patterns: {e}")
+        return []
+    
+    def load_persistent_data(self) -> dict:
+        """Load all persistent data (linked patterns and standalone patterns)"""
+        try:
+            hook_file = os.path.join(PATTERN_LOCATION, HOOK_FILE)
+            if os.path.exists(hook_file):
+                with open(hook_file, 'r') as f:
+                    import json
+                    data = json.load(f)
+                    # Support legacy format: if data is a dict of strings (old format),
+                    # convert it to new format with "linked" key
+                    if data and isinstance(data, dict):
+                        # Check if it's old format (has hook names as keys, patterns as values)
+                        # vs new format (has "linked" and "standalone" keys)
+                        if "linked" not in data and "standalone" not in data:
+                            # Old format - convert to new format
+                            data = {"linked": data, "standalone": []}
+                    return data
+        except Exception as e:
+            print(f"Error loading persistent data: {e}")
+        return {"linked": {}, "standalone": []}
+    
+    def _write_persistent_data(self, data: dict):
+        """Write persistent data to file"""
+        hook_file = os.path.join(PATTERN_LOCATION, HOOK_FILE)
+        os.makedirs(PATTERN_LOCATION, exist_ok=True)
+        
+        with open(hook_file, 'w') as f:
+            import json
+            json.dump(data, f, indent=2)
 
     def start_startup_patterns(self):
         """Start all patterns registered to start on startup."""

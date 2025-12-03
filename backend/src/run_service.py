@@ -27,10 +27,30 @@ def main(socket_path: str = "/tmp/wopr.sock"):
         manager.register_startup_pattern(p)
     for hook_event, pattern_name in HOOK_LINKS.items():
         manager.register_startup_pattern(pattern_name, linked_hook=hook_event)
+    
+    # Load persistent configuration from previous sessions
+    persistent_data = manager.load_persistent_data()
+    
+    # Restore hook-linked patterns (they auto-start on boot)
+    linked_patterns = persistent_data.get("linked", {})
+    for hook_event, pattern_name in linked_patterns.items():
+        if hook_event not in manager.startup_links:
+            manager.startup_links[hook_event] = pattern_name
+            # Auto-start hook-linked patterns on boot
+            if pattern_name in manager.patterns:
+                manager.startup_patterns.append(pattern_name)
+                print(f"Restored persistent hook link: {hook_event} → {pattern_name} (auto-starting)")
+    
+    # Restore standalone patterns (also auto-start them)
+    standalone_patterns = persistent_data.get("standalone", [])
+    for pattern_name in standalone_patterns:
+        if pattern_name in manager.patterns and pattern_name not in manager.startup_patterns:
+            manager.startup_patterns.append(pattern_name)
+            print(f"Restored standalone startup pattern: {pattern_name}")
 
     # RESTORE LAST PATTERN (from previous session)
     if not manager.load_pattern():
-        # If no saved pattern, start config defaults
+        # If no saved pattern, start config defaults and startup patterns
         manager.start_startup_patterns()
 
     # Start IPC server
@@ -48,8 +68,15 @@ def main(socket_path: str = "/tmp/wopr.sock"):
     signal.signal(signal.SIGTERM, _signal)
 
     try:
+        last_hook_check = time.time()
         while not stop_event.is_set():
-            time.sleep(0.5)
+            # Check hooks every 500ms for alerts
+            now = time.time()
+            if now - last_hook_check >= 0.5:
+                manager.check_hooks()
+                last_hook_check = now
+            
+            time.sleep(0.1)
     finally:
         #print("Stopping patterns...")
         #manager.stop_all_patterns()  //Kills patterns when we want to keep them running but the service is always running.

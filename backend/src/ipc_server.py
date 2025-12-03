@@ -14,6 +14,7 @@ Example response:
 Supported actions:
   - list_patterns
   - list_hooks
+  - list_hook_pattern_links (returns available hooks and current pattern links)
   - start_pattern {name}
   - stop_pattern
   - stop_all
@@ -21,6 +22,15 @@ Supported actions:
   - register_startup {name}
   - unregister_startup {name}
   - list_startup
+  - link_hook_to_pattern {hook_event_name, pattern_name}
+  - unlink_hook {hook_event_name}
+  - trigger_test_hook (triggers the test hook for testing)
+  - add_persistent_link {hook_event_name, pattern_name}
+  - remove_persistent_link {hook_event_name}
+  - list_persistent_links
+  - add_pattern_to_startup {pattern_name}
+  - remove_pattern_from_startup {pattern_name}
+  - list_startup_patterns
   - shutdown (stops manager patterns and stops the server)
 
 This server is intentionally small and dependency-free.
@@ -130,9 +140,11 @@ class IPCServer(threading.Thread):
     def _handle_action(self, action: str, params: dict) -> dict:
         try:
             if action == "list_patterns":
+                self.manager.load_patterns()  # Reload patterns to pick up new files
                 return {"ok": True, "result": list(self.manager.patterns.keys())}
 
             if action == "list_hooks":
+                self.manager.load_hooks()  # Reload hooks to pick up new files
                 return {"ok": True, "result": [h.event_name for h in self.manager.hooks]}
 
             if action == "start_pattern":
@@ -189,6 +201,117 @@ class IPCServer(threading.Thread):
             if action == "list_startup":
                 return {"ok": True, "result": {"startup_patterns": list(self.manager.startup_patterns), "startup_links": dict(self.manager.startup_links)}}
 
+            if action == "list_hook_pattern_links":
+                # Return all hooks and their current pattern links (if any)
+                hook_patterns = {}
+                for hook in self.manager.hooks:
+                    linked_pattern = self.manager.startup_links.get(hook.event_name)
+                    hook_patterns[hook.event_name] = linked_pattern
+                return {"ok": True, "result": hook_patterns}
+
+            if action == "link_hook_to_pattern":
+                hook_event_name = params.get("hook_event_name")
+                pattern_name = params.get("pattern_name")
+                if not hook_event_name or not pattern_name:
+                    return {"ok": False, "error": "missing hook_event_name or pattern_name"}
+                
+                # Verify hook exists
+                hook_exists = any(h.event_name == hook_event_name for h in self.manager.hooks)
+                if not hook_exists:
+                    return {"ok": False, "error": f"hook '{hook_event_name}' not found"}
+                
+                # Verify pattern exists
+                if pattern_name not in self.manager.patterns:
+                    return {"ok": False, "error": f"pattern '{pattern_name}' not found"}
+                
+                self.manager.startup_links[hook_event_name] = pattern_name
+                return {"ok": True, "result": f"linked {hook_event_name} to {pattern_name}"}
+
+            if action == "unlink_hook":
+                hook_event_name = params.get("hook_event_name")
+                if not hook_event_name:
+                    return {"ok": False, "error": "missing hook_event_name"}
+                
+                if hook_event_name in self.manager.startup_links:
+                    del self.manager.startup_links[hook_event_name]
+                    return {"ok": True, "result": f"unlinked {hook_event_name}"}
+                else:
+                    return {"ok": False, "error": f"hook '{hook_event_name}' not linked"}
+
+            if action == "trigger_test_hook":
+                # Find and trigger the test hook
+                for hook in self.manager.hooks:
+                    if hook.event_name == "test_trigger":
+                        if hasattr(hook, 'trigger'):
+                            hook.trigger()
+                            return {"ok": True, "result": "test hook triggered"}
+                        else:
+                            return {"ok": False, "error": "test hook does not support triggering"}
+                return {"ok": False, "error": "test hook not found"}
+
+            if action == "add_persistent_link":
+                hook_event_name = params.get("hook_event_name")
+                pattern_name = params.get("pattern_name")
+                if not hook_event_name or not pattern_name:
+                    return {"ok": False, "error": "missing hook_event_name or pattern_name"}
+                
+                # Verify hook exists
+                hook_exists = any(h.event_name == hook_event_name for h in self.manager.hooks)
+                if not hook_exists:
+                    return {"ok": False, "error": f"hook '{hook_event_name}' not found"}
+                
+                # Verify pattern exists
+                if pattern_name not in self.manager.patterns:
+                    return {"ok": False, "error": f"pattern '{pattern_name}' not found"}
+                
+                # Also add to runtime links
+                self.manager.startup_links[hook_event_name] = pattern_name
+                # Save to persistent storage
+                self.manager.save_persistent_link(hook_event_name, pattern_name)
+                return {"ok": True, "result": f"added persistent link {hook_event_name} → {pattern_name}"}
+
+            if action == "remove_persistent_link":
+                hook_event_name = params.get("hook_event_name")
+                if not hook_event_name:
+                    return {"ok": False, "error": "missing hook_event_name"}
+                
+                # Remove from runtime
+                if hook_event_name in self.manager.startup_links:
+                    del self.manager.startup_links[hook_event_name]
+                
+                # Remove from persistent storage
+                self.manager.remove_persistent_link(hook_event_name)
+                return {"ok": True, "result": f"removed persistent link {hook_event_name}"}
+
+            if action == "list_persistent_links":
+                links = self.manager.load_persistent_links()
+                return {"ok": True, "result": links}
+
+            if action == "add_pattern_to_startup":
+                pattern_name = params.get("pattern_name")
+                if not pattern_name:
+                    return {"ok": False, "error": "missing pattern_name"}
+                
+                # Verify pattern exists
+                if pattern_name not in self.manager.patterns:
+                    return {"ok": False, "error": f"pattern '{pattern_name}' not found"}
+                
+                # Save standalone pattern to persistent storage
+                self.manager.save_pattern_to_startup(pattern_name)
+                return {"ok": True, "result": f"added pattern '{pattern_name}' to startup"}
+
+            if action == "remove_pattern_from_startup":
+                pattern_name = params.get("pattern_name")
+                if not pattern_name:
+                    return {"ok": False, "error": "missing pattern_name"}
+                
+                # Remove standalone pattern from persistent storage
+                self.manager.remove_pattern_from_startup(pattern_name)
+                return {"ok": True, "result": f"removed pattern '{pattern_name}' from startup"}
+
+            if action == "list_startup_patterns":
+                patterns = self.manager.load_startup_patterns_list()
+                return {"ok": True, "result": patterns}
             
             if action == "shutdown":
                 # Stop patterns and return

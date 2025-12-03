@@ -16,3 +16,29 @@ printf '{"action":"stop_pattern"}' | socat - UNIX-CONNECT:/tmp/wopr.sock
 printf '{"action":"status"}' | socat - UNIX-CONNECT:/tmp/wopr.sock
 # Save Pattern
 printf '{"action":"save_pattern", "params":{"name":"Loading Bar Pattern"}}' | socat - UNIX-CONNECT:/tmp/wopr
+# Link cpu_over_50 to Knight Rider Pattern
+printf '{"action":"link_hook_to_pattern","params":{"hook_event_name":"cpu_over_50","pattern_name":"Knight Rider Pattern"}}' | socat - UNIX-CONNECT:/tmp/wopr.sock
+
+
+WOPR IPC Server - All Actions Reference
+list_patterns	List all available patterns	{"action":"list_patterns"}
+list_hooks	List all active monitoring hooks	{"action":"list_hooks"}
+list_hook_pattern_links	Show which patterns are linked to each hook	{"action":"list_hook_pattern_links"}
+start_pattern	Start running a pattern	{"action":"start_pattern","params":{"name":"Knight Rider Pattern"}}
+stop_pattern	Stop the currently running pattern	{"action":"stop_pattern"}
+stop_all	Stop all running patterns	{"action":"stop_all"}
+status	Get current pattern status	{"action":"status"}
+save_pattern	Save current pattern to persist across reboots	{"action":"save_pattern","params":{"name":"Loading Bar Pattern"}}
+register_startup	Register pattern to start on boot (with optional hook link)	{"action":"register_startup","params":{"name":"Knight Rider Pattern","linked_hook":"cpu_monitor"}}
+unregister_startup	Remove pattern from startup	{"action":"unregister_startup","params":{"name":"Knight Rider Pattern"}}
+list_startup	List startup patterns and hook links	{"action":"list_startup"}
+link_hook_to_pattern	Link a hook to a pattern (triggers pattern on hook event)	{"action":"link_hook_to_pattern","params":{"hook_event_name":"cpu_monitor","pattern_name":"Knight Rider Pattern"}}
+unlink_hook	Remove hook→pattern link	{"action":"unlink_hook","params":{"hook_event_name":"cpu_monitor"}}
+trigger_test_hook	Manually trigger test hook (for testing)	{"action":"trigger_test_hook"}
+add_persistent_link	Save hook→pattern link to persistent storage	{"action":"add_persistent_link","params":{"hook_event_name":"disk_space_monitor","pattern_name":"Loading Bar Pattern"}}
+remove_persistent_link	Remove hook→pattern link from persistent storage	{"action":"remove_persistent_link","params":{"hook_event_name":"disk_space_monitor"}}
+list_persistent_links	Show all saved hook→pattern links	{"action":"list_persistent_links"}
+add_pattern_to_startup	Add standalone pattern to auto-start on boot	{"action":"add_pattern_to_startup","params":{"pattern_name":"Loading Bar Pattern"}}
+remove_pattern_from_startup	Remove standalone pattern from auto-start	{"action":"remove_pattern_from_startup","params":{"pattern_name":"Loading Bar Pattern"}}
+list_startup_patterns	List patterns set to auto-start	{"action":"list_startup_patterns"}
+shutdown	Stop all patterns and shutdown IPC server	{"action":"shutdown"}
