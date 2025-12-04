@@ -79,13 +79,6 @@ fi
 log_info "Installing WOPR LED Control System for user: $SERVICE_USER"
 log_info "Installation directory: $INSTALL_DIR"
 
-# Ask for confirmation
-read -p "Continue with installation? (y/N) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    log_info "Installation cancelled"
-    exit 0
-fi
 
 # ============================================================================
 # STEP 1: System Dependencies
