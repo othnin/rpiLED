@@ -163,7 +163,7 @@ log_info "Setting up backend virtual environment..."
 cd "$INSTALL_DIR/backend"
 sudo -u "$SERVICE_USER" python3 -m venv venv
 sudo -u "$SERVICE_USER" venv/bin/pip install --upgrade pip
-sudo -u "$SERVICE_USER" venv/bin/pip install -r requirements.txt
+sudo -u "$SERVICE_USER" venv/bin/pip install -r src/requirements.txt
 
 log_success "Backend environment configured"
 
@@ -175,7 +175,7 @@ log_info "Setting up GUI virtual environment..."
 cd "$INSTALL_DIR/frontend"
 sudo -u "$SERVICE_USER" python3 -m venv venv
 sudo -u "$SERVICE_USER" venv/bin/pip install --upgrade pip
-sudo -u "$SERVICE_USER" venv/bin/pip install -r requirements.txt
+sudo -u "$SERVICE_USER" venv/bin/pip install -r src/requirements.txt
 
 log_success "GUI environment configured"
 
