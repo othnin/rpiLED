@@ -22,8 +22,8 @@ NC='\033[0m' # No Color
 
 # Configuration
 INSTALL_DIR="/opt/WOPR"
-DATA_DIR="/opt/WOPR/data"
-REPO_URL="https://github.com/YOUR_USERNAME/WOPR.git"
+DATA_DIR="/opt/WOPR/backend/data"
+REPO_URL="https://github.com/othnin/rpiLED.git"
 BRANCH="main"
 SERVICE_USER="${SUDO_USER:-$USER}"
 
@@ -119,8 +119,8 @@ log_success "System dependencies installed"
 # ============================================================================
 log_info "Enabling SPI interface..."
 
-if ! grep -q "^dtparam=spi=on" /boot/config.txt; then
-    echo "dtparam=spi=on" >> /boot/config.txt
+if ! grep -q "^dtparam=spi=on" /boot/firmware/config.txt; then
+    echo "dtparam=spi=on" >> /boot/firmware/config.txt
     log_warning "SPI enabled. A reboot will be required after installation."
     NEEDS_REBOOT=1
 else
@@ -185,7 +185,7 @@ log_info "Setting up GUI virtual environment..."
 cd "$INSTALL_DIR/frontend"
 sudo -u "$SERVICE_USER" python3 -m venv venv
 sudo -u "$SERVICE_USER" venv/bin/pip install --upgrade pip
-sudo -u "$SERVICE_USER" venv/bin/pip install PySide6
+sudo -u "$SERVICE_USER" venv/bin/pip install -r requirements.txt
 
 log_success "GUI environment configured"
 
