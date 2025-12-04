@@ -91,9 +91,6 @@ apt-get install -y \
     python3-pip \
     python3-venv \
     git \
-    # spi-bcm2835 \
-    # libgpiod2 \
-    # python3-gpiod \
     libxcb-cursor0 \
     libxcb-icccm4 \
     libxcb-image0 \
