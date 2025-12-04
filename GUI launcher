@@ -286,6 +286,15 @@ fi
 
 log_success "GUI launcher ready"
 
+# Create trust script for manual use if needed
+cat > "$INSTALL_DIR/trust-desktop-icon.sh" << 'TRUST_EOF'
+#!/bin/bash
+echo "Trusting WOPR desktop icon..."
+gio set ~/Desktop/wopr-control.desktop metadata::trusted true 2>/dev/null && echo "✓ Desktop icon trusted" || echo "✗ Failed - try right-clicking icon and select 'Allow Launching'"
+TRUST_EOF
+chmod +x "$INSTALL_DIR/trust-desktop-icon.sh"
+chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/trust-desktop-icon.sh"
+
 # ============================================================================
 # STEP 10: Add User to SPI Group
 # ============================================================================
