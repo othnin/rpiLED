@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /opt/WOPR/gui
+cd /opt/WOPR/frontend
 source venv/bin/activate
-python3 wopr_gui.py
+python3 src/wopr_gui.py
 deactivate
