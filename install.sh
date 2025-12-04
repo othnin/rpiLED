@@ -185,8 +185,8 @@ log_success "GUI environment configured"
 log_info "Installing systemd service..."
 
 # Copy service file from repository
-if [ -f "$INSTALL_DIR/backend/systemd/wopr.service" ]; then
-    cp "$INSTALL_DIR/backend/systemd/wopr.service" /etc/systemd/system/wopr.service
+if [ -f "$INSTALL_DIR/backend/src/systemd/wopr.service" ]; then
+    cp "$INSTALL_DIR/backend/src/systemd/wopr.service" /etc/systemd/system/wopr.service
     
     # Update paths in service file to match installation
     sed -i "s|/opt/WOPR|$INSTALL_DIR|g" /etc/systemd/system/wopr.service
@@ -194,7 +194,7 @@ if [ -f "$INSTALL_DIR/backend/systemd/wopr.service" ]; then
     
     log_success "Service file installed"
 else
-    log_error "Service file not found at $INSTALL_DIR/backend/systemd/wopr.service"
+    log_error "Service file not found at $INSTALL_DIR/backend/src/systemd/wopr.service"
     exit 1
 fi
 
@@ -232,7 +232,7 @@ fi
 
 # Set ownership
 if [ -f "$INSTALL_DIR/frontend/src/wopr-icon.png" ]; then
-    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/gui/wopr-icon.png"
+    chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR/frontend/src/wopr-icon.png"
     log_success "Icon ready"
 fi
 
