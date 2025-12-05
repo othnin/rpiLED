@@ -256,6 +256,16 @@ class PatternManager:
         """Check all system hooks and trigger if needed"""
         for hook in self.hooks:
             try:
+                # Only check hooks that have a purpose:
+                # 1. They're linked to a pattern, OR
+                # 2. A pattern is running that can receive alerts
+                hook_has_link = hook.event_name in self.startup_links
+                pattern_is_running = self.current_pattern is not None
+                
+                # Skip this hook if it has no purpose
+                if not hook_has_link and not pattern_is_running:
+                    continue
+                
                 if hook.check():
                     print(f"Event triggered: {hook.event_name}")
                     
@@ -275,9 +285,6 @@ class PatternManager:
                     if linked_pattern and linked_pattern in self.patterns:
                         print(f"Starting linked pattern: {linked_pattern}")
                         self.start_pattern(linked_pattern)
-                    elif not self.current_pattern:
-                        # Fall back to hook's own on_trigger if no pattern running
-                        hook.on_trigger(self)
             except Exception as e:
                 print(f"Error checking hook {hook.event_name}: {e}")
     
