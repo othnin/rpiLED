@@ -1,0 +1,2 @@
+# Exclusions
+- IGNORE the venv/ directory, which contains virtual environment files that are not relevant to the project.

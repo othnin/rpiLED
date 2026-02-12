@@ -36,6 +36,7 @@ class CPUMonitorHook(SystemEventHook):
     def check(self) -> bool:
         """Check CPU usage and return True if alert level changed"""
         cpu_percent = psutil.cpu_percent(interval=0.1)
+        print("CPU Percent: ", str(cpu_percent))
         
         # Determine alert level
         if cpu_percent > self.crit_threshold:
@@ -56,6 +57,7 @@ class CPUMonitorHook(SystemEventHook):
     def get_message(self) -> HookMessage:
         """Generate alert message for current CPU state"""
         color = AlertColorScheme.get_color(self._last_level)
+        print("Color: ", str(color))
         
         return HookMessage(
             hook_name=self.event_name,

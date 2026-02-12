@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
 PySide6 GUI for controlling the WOPR LED service via IPC.
-Top section for testing patterns and hooks.
-Bottom section for persistent startup configuration.
+Simplified layout with Test Patterns and Select Patterns sections.
 """
 import sys
 import socket
 import json
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QListWidget, QLabel, QGroupBox, QMessageBox,
-    QSplitter, QStatusBar, QListWidgetItem, QComboBox
+    QPushButton, QLabel, QGroupBox, QMessageBox, QStatusBar, QComboBox, QCheckBox
 )
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QFont
@@ -21,12 +19,13 @@ class WOPRControlGUI(QMainWindow):
         super().__init__()
         self.socket_path = socket_path
         self.setWindowTitle("WOPR LED Control")
-        self.setMinimumSize(900, 700)
+        self.setMinimumSize(700, 600)
         
-        # Track current configuration state
-        self.current_pattern = None  # Currently selected pattern in dropdown
-        self.hook_links = {}  # {hook_name: pattern_name}
-        self.startup_patterns = []  # [pattern_names]
+        # Track state
+        self.patterns = []  # List of available patterns
+        self.hooks = []  # List of available hooks
+        self.test_pattern_buttons = {}  # {pattern_name: (start_btn, stop_btn)}
+        self.running_test_pattern = None  # Currently running test pattern
         
         # Create central widget and main layout
         central = QWidget()
@@ -37,9 +36,15 @@ class WOPRControlGUI(QMainWindow):
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
         
+        # ===== TOP SECTION: Status =====
+        status_layout = QHBoxLayout()
+        
         # Connection status label
         self.conn_status = QLabel("● Disconnected")
         self.conn_status.setStyleSheet("color: red; font-weight: bold;")
+        status_layout.addWidget(self.conn_status)
+        
+        status_layout.addStretch()
         
         # Current pattern display
         self.current_pattern_label = QLabel("Current Pattern: None")
@@ -47,153 +52,106 @@ class WOPRControlGUI(QMainWindow):
         font.setPointSize(12)
         font.setBold(True)
         self.current_pattern_label.setFont(font)
-        
-        # Top section with status
-        status_layout = QHBoxLayout()
-        status_layout.addWidget(self.conn_status)
-        status_layout.addStretch()
         status_layout.addWidget(self.current_pattern_label)
+        
         layout.addLayout(status_layout)
         
-        # ===== TEST SECTION (Top) =====
-        test_group = QGroupBox("Test Patterns & Hooks")
+        # Running hooks display (aligned to the right, under Current Pattern)
+        running_hooks_layout = QHBoxLayout()
+        running_hooks_layout.addStretch()
+        self.running_hooks_label = QLabel("Running Hooks: None")
+        running_hooks_font = QFont()
+        running_hooks_font.setPointSize(12)
+        running_hooks_font.setBold(True)
+        self.running_hooks_label.setFont(running_hooks_font)
+        running_hooks_layout.addWidget(self.running_hooks_label)
+        layout.addLayout(running_hooks_layout)
+        
+        layout.addSpacing(10)
+        
+        # ===== TEST PATTERNS SECTION =====
+        test_group = QGroupBox()
         test_layout = QVBoxLayout()
         
-        # Splitter for patterns and hooks
-        test_splitter = QSplitter(Qt.Horizontal)
+        # Bold header
+        test_header = QLabel("Test Patterns")
+        test_header_font = QFont()
+        test_header_font.setBold(True)
+        test_header_font.setPointSize(11)
+        test_header.setFont(test_header_font)
+        test_layout.addWidget(test_header)
         
-        # Test Patterns
-        patterns_group = QGroupBox("Available Patterns")
-        patterns_layout = QVBoxLayout()
-        self.test_patterns_list = QListWidget()
-        self.test_patterns_list.itemDoubleClicked.connect(self.start_selected_pattern)
-        patterns_layout.addWidget(self.test_patterns_list)
+        # Container for pattern buttons (will be populated dynamically)
+        self.test_patterns_container = QVBoxLayout()
+        test_layout.addLayout(self.test_patterns_container)
         
-        patterns_btn_layout = QHBoxLayout()
-        self.start_btn = QPushButton("Start")
-        self.start_btn.clicked.connect(self.start_selected_pattern)
-        self.stop_btn = QPushButton("Stop")
-        self.stop_btn.clicked.connect(self.stop_pattern)
-        patterns_btn_layout.addWidget(self.start_btn)
-        patterns_btn_layout.addWidget(self.stop_btn)
-        patterns_layout.addLayout(patterns_btn_layout)
+        # Test Hook checkbox
+        self.test_hook_checkbox = QCheckBox("Test Hook")
+        self.test_hook_checkbox.stateChanged.connect(self.on_test_hook_changed)
+        test_layout.addWidget(self.test_hook_checkbox)
         
-        patterns_group.setLayout(patterns_layout)
-        test_splitter.addWidget(patterns_group)
-        
-        # Test Hooks
-        hooks_group = QGroupBox("Available Hooks (Test)")
-        hooks_layout = QVBoxLayout()
-        self.test_hooks_list = QListWidget()
-        hooks_layout.addWidget(self.test_hooks_list)
-        
-        hook_btn_layout = QHBoxLayout()
-        self.trigger_hook_btn = QPushButton("Trigger Selected Hook")
-        self.trigger_hook_btn.clicked.connect(self.trigger_selected_hook)
-        hook_btn_layout.addWidget(self.trigger_hook_btn)
-        hooks_layout.addLayout(hook_btn_layout)
-        
-        hooks_group.setLayout(hooks_layout)
-        test_splitter.addWidget(hooks_group)
-        
-        test_layout.addWidget(test_splitter)
         test_group.setLayout(test_layout)
         layout.addWidget(test_group)
         
-        # ===== STARTUP CONFIGURATION SECTION (Bottom) =====
-        startup_group = QGroupBox("Startup Configuration")
-        startup_layout = QVBoxLayout()
+        layout.addSpacing(20)
         
-        # Instructions
-        startup_layout.addWidget(QLabel("Select how to start this pattern:"))
-        startup_layout.addSpacing(5)
+        # ===== SELECT PATTERNS SECTION =====
+        select_group = QGroupBox()
+        select_layout = QVBoxLayout()
         
-        # Startup mode selector (dropdown)
-        mode_layout = QHBoxLayout()
-        mode_layout.addWidget(QLabel("Pattern:"))
+        # Bold header
+        select_header = QLabel("Select Patterns")
+        select_header_font = QFont()
+        select_header_font.setBold(True)
+        select_header_font.setPointSize(11)
+        select_header.setFont(select_header_font)
+        select_layout.addWidget(select_header)
         
-        self.startup_mode_dropdown = QComboBox()
-        self.startup_mode_dropdown.addItem("(Select a pattern)")
-        self.startup_mode_dropdown.currentIndexChanged.connect(self.on_startup_mode_changed)
-        mode_layout.addWidget(self.startup_mode_dropdown)
-        mode_layout.addSpacing(20)
+        select_layout.addSpacing(10)
         
-        startup_layout.addLayout(mode_layout)
-        startup_layout.addSpacing(10)
+        # Pattern dropdown
+        pattern_select_layout = QHBoxLayout()
+        pattern_select_layout.addWidget(QLabel("Pattern:"))
+        self.pattern_dropdown = QComboBox()
+        self.pattern_dropdown.addItem("(Select a pattern)")
+        pattern_select_layout.addWidget(self.pattern_dropdown)
+        pattern_select_layout.addStretch()
+        select_layout.addLayout(pattern_select_layout)
         
-        # Configuration info box
-        self.config_info_box = QGroupBox("Configuration Options")
-        config_box_layout = QVBoxLayout()
+        select_layout.addSpacing(10)
         
-        # Hook link option
-        hook_option_layout = QHBoxLayout()
-        self.hook_radio_label = QLabel("🔗 Hook Link:")
-        self.hook_radio_label.setStyleSheet("font-weight: bold;")
-        hook_option_layout.addWidget(self.hook_radio_label)
+        # Configure Options subsection
+        config_box = QGroupBox("Configure Options")
+        config_layout = QVBoxLayout()
         
+        # Hook type dropdown
+        hook_select_layout = QHBoxLayout()
+        hook_select_layout.addWidget(QLabel("Hook Type:"))
         self.hook_dropdown = QComboBox()
         self.hook_dropdown.addItem("(Select a hook)")
-        hook_option_layout.addWidget(self.hook_dropdown)
+        hook_select_layout.addWidget(self.hook_dropdown)
+        hook_select_layout.addStretch()
+        config_layout.addLayout(hook_select_layout)
         
-        self.hook_start_btn = QPushButton("Start & Auto-start on Boot")
-        self.hook_start_btn.setEnabled(False)
-        self.hook_start_btn.clicked.connect(self.add_startup_link_with_start)
-        self.hook_start_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
-        hook_option_layout.addWidget(self.hook_start_btn)
+        config_layout.addSpacing(10)
         
-        self.hook_remove_btn = QPushButton("Remove & Stop")
-        self.hook_remove_btn.setEnabled(False)
-        self.hook_remove_btn.clicked.connect(self.remove_startup_link_with_stop)
-        self.hook_remove_btn.setStyleSheet("background-color: #f44336; color: white;")
-        hook_option_layout.addWidget(self.hook_remove_btn)
+        # OK button
+        ok_btn_layout = QHBoxLayout()
+        ok_btn_layout.addStretch()
+        self.ok_btn = QPushButton("OK")
+        self.ok_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 8px 30px;")
+        self.ok_btn.clicked.connect(self.on_ok_clicked)
+        ok_btn_layout.addWidget(self.ok_btn)
+        ok_btn_layout.addStretch()
+        config_layout.addLayout(ok_btn_layout)
         
-        config_box_layout.addLayout(hook_option_layout)
-        config_box_layout.addSpacing(10)
+        config_box.setLayout(config_layout)
+        select_layout.addWidget(config_box)
         
-        # Standalone option
-        standalone_option_layout = QHBoxLayout()
-        self.standalone_radio_label = QLabel("⭐ Standalone:")
-        self.standalone_radio_label.setStyleSheet("font-weight: bold;")
-        standalone_option_layout.addWidget(self.standalone_radio_label)
+        select_group.setLayout(select_layout)
+        layout.addWidget(select_group)
         
-        self.standalone_start_btn = QPushButton("Start & Auto-start on Boot")
-        self.standalone_start_btn.setEnabled(False)
-        self.standalone_start_btn.clicked.connect(self.add_pattern_to_startup_with_start)
-        self.standalone_start_btn.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
-        standalone_option_layout.addWidget(self.standalone_start_btn)
-        
-        self.standalone_remove_btn = QPushButton("Remove & Stop")
-        self.standalone_remove_btn.setEnabled(False)
-        self.standalone_remove_btn.clicked.connect(self.remove_pattern_from_startup_with_stop)
-        self.standalone_remove_btn.setStyleSheet("background-color: #f44336; color: white;")
-        standalone_option_layout.addWidget(self.standalone_remove_btn)
-        
-        standalone_option_layout.addStretch()
-        config_box_layout.addLayout(standalone_option_layout)
-        
-        self.config_info_box.setLayout(config_box_layout)
-        startup_layout.addWidget(self.config_info_box)
-        
-        # Status info
-        self.startup_status_label = QLabel("")
-        self.startup_status_label.setStyleSheet("color: green; font-style: italic;")
-        startup_layout.addWidget(self.startup_status_label)
-        
-        startup_layout.addStretch()
-        
-        startup_group.setLayout(startup_layout)
-        layout.addWidget(startup_group)
-        
-        # Control buttons
-        control_layout = QHBoxLayout()
-        self.refresh_btn = QPushButton("Refresh All")
-        self.refresh_btn.clicked.connect(self.refresh_all)
-        self.stop_all_btn = QPushButton("Stop All Patterns")
-        self.stop_all_btn.clicked.connect(self.stop_all_patterns)
-        control_layout.addWidget(self.refresh_btn)
-        control_layout.addStretch()
-        control_layout.addWidget(self.stop_all_btn)
-        layout.addLayout(control_layout)
+        layout.addStretch()
         
         # Auto-refresh timer
         self.refresh_timer = QTimer()
@@ -202,6 +160,12 @@ class WOPRControlGUI(QMainWindow):
         
         # Initial refresh
         self.refresh_all()
+    
+    def closeEvent(self, event):
+        """Handle application close - stop any running test pattern."""
+        if self.running_test_pattern:
+            self.send_ipc_command("stop_pattern")
+        event.accept()
     
     def send_ipc_command(self, action, params=None):
         """Send a command to the IPC server and return the response."""
@@ -249,24 +213,22 @@ class WOPRControlGUI(QMainWindow):
         self.refresh_patterns()
         self.refresh_hooks()
         self.refresh_status()
-        self.refresh_startup_links()
     
     def refresh_patterns(self):
         """Refresh the list of available patterns."""
         response = self.send_ipc_command("list_patterns")
         if response.get("ok"):
-            self.test_patterns_list.clear()
-            patterns = response.get("result", [])
-            self.test_patterns_list.addItems(sorted(patterns))
-            self.status_bar.showMessage(f"Loaded {len(patterns)} patterns", 3000)
+            self.patterns = sorted(response.get("result", []))
+            self.populate_test_patterns()
+            self.populate_pattern_dropdown()
+            self.status_bar.showMessage(f"Loaded {len(self.patterns)} patterns", 3000)
     
     def refresh_hooks(self):
         """Refresh the list of available hooks."""
         response = self.send_ipc_command("list_hooks")
         if response.get("ok"):
-            self.test_hooks_list.clear()
-            hooks = response.get("result", [])
-            self.test_hooks_list.addItems(sorted(hooks))
+            self.hooks = sorted(response.get("result", []))
+            self.populate_hook_dropdown()
     
     def refresh_status(self):
         """Refresh the current pattern status."""
@@ -280,478 +242,261 @@ class WOPRControlGUI(QMainWindow):
             else:
                 self.current_pattern_label.setText("Current Pattern: None")
                 self.current_pattern_label.setStyleSheet("color: gray;")
-    
-    def refresh_startup_links(self):
-        """Refresh the persistent startup links and patterns."""
-        # Refresh hook-pattern links
-        response = self.send_ipc_command("list_persistent_links")
-        if response.get("ok"):
-            self.hook_links = response.get("result", {})
         
-        # Refresh standalone patterns
-        response = self.send_ipc_command("list_startup_patterns")
-        if response.get("ok"):
-            self.startup_patterns = response.get("result", [])
-        
-        # Update pattern dropdown with all available patterns
-        self.startup_mode_dropdown.blockSignals(True)
-        current_text = self.startup_mode_dropdown.currentText()
-        self.startup_mode_dropdown.clear()
-        self.startup_mode_dropdown.addItem("(Select a pattern)")
-        
-        # Get all patterns
-        response = self.send_ipc_command("list_patterns")
-        if response.get("ok"):
-            patterns = sorted(response.get("result", []))
-            for pattern in patterns:
-                self.startup_mode_dropdown.addItem(pattern)
-        
-        # Restore selection if it exists
-        index = self.startup_mode_dropdown.findText(current_text)
-        if index >= 0:
-            self.startup_mode_dropdown.setCurrentIndex(index)
-        
-        self.startup_mode_dropdown.blockSignals(False)
-        
-        # Update hook dropdown
-        response = self.send_ipc_command("list_hooks")
-        if response.get("ok"):
-            self.hook_dropdown.blockSignals(True)
-            current_hook = self.hook_dropdown.currentText()
-            self.hook_dropdown.clear()
-            self.hook_dropdown.addItem("(Select a hook)")
-            
-            hooks = sorted(response.get("result", []))
-            for hook in hooks:
-                self.hook_dropdown.addItem(hook)
-            
-            # Restore selection if it exists
-            index = self.hook_dropdown.findText(current_hook)
-            if index >= 0:
-                self.hook_dropdown.setCurrentIndex(index)
-            
-            self.hook_dropdown.blockSignals(False)
-    
-    def start_selected_pattern(self):
-        """Start the selected pattern."""
-        current = self.test_patterns_list.currentItem()
-        if not current:
-            QMessageBox.warning(self, "No Selection", "Please select a pattern to start.")
-            return
-        
-        pattern_name = current.text()
-        response = self.send_ipc_command("start_pattern", {"name": pattern_name})
-        
-        if response.get("ok"):
-            self.status_bar.showMessage(f"Started pattern: {pattern_name}", 3000)
-            self.refresh_status()
-        else:
-            QMessageBox.critical(self, "Error", f"Failed to start pattern: {response.get('error')}")
-    
-    def stop_pattern(self):
-        """Stop the current pattern."""
-        response = self.send_ipc_command("stop_pattern")
-        
-        if response.get("ok"):
-            self.status_bar.showMessage("Stopped current pattern", 3000)
-            self.refresh_status()
-        else:
-            QMessageBox.critical(self, "Error", f"Failed to stop pattern: {response.get('error')}")
-    
-    def stop_all_patterns(self):
-        """Stop all patterns."""
-        reply = QMessageBox.question(
-            self, "Confirm", "Stop all running patterns?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            response = self.send_ipc_command("stop_all")
-            if response.get("ok"):
-                self.status_bar.showMessage("Stopped all patterns", 3000)
-                self.refresh_status()
-            else:
-                QMessageBox.critical(self, "Error", f"Failed to stop patterns: {response.get('error')}")
-    
-    def trigger_selected_hook(self):
-        """Trigger the selected hook for testing."""
-        current = self.test_hooks_list.currentItem()
-        if not current:
-            QMessageBox.warning(self, "No Selection", "Please select a hook to trigger.")
-            return
-        
-        hook_name = current.text()
-        
-        # Special case for test hook
-        if hook_name == "test_trigger":
-            response = self.send_ipc_command("trigger_test_hook")
-            if response.get("ok"):
-                self.status_bar.showMessage(f"Triggered hook: {hook_name}", 3000)
-            else:
-                QMessageBox.critical(self, "Error", f"Failed to trigger hook: {response.get('error')}")
-        else:
-            QMessageBox.information(
-                self, "Info", 
-                f"The '{hook_name}' hook triggers automatically based on system conditions.\n"
-                f"Use 'test_trigger' hook to manually test patterns."
-            )
-    
-    def add_startup_link(self):
-        """Add a persistent link from selected hook and pattern."""
-        hook_item = self.test_hooks_list.currentItem()
-        pattern_item = self.test_patterns_list.currentItem()
-        
-        if not hook_item:
-            QMessageBox.warning(self, "No Hook Selected", "Please select a hook from the Available Hooks list.")
-            return
-        
-        if not pattern_item:
-            QMessageBox.warning(self, "No Pattern Selected", "Please select a pattern from the Available Patterns list.")
-            return
-        
-        hook_event_name = hook_item.text()
-        pattern_name = pattern_item.text()
-        
-        # Check if pattern is already in standalone
-        response = self.send_ipc_command("list_startup_patterns")
-        if response.get("ok"):
-            standalone = response.get("result", [])
-            if pattern_name in standalone:
-                QMessageBox.warning(
-                    self, "Conflict", 
-                    f"Pattern '{pattern_name}' is already configured as Standalone.\n"
-                    f"Remove it from Standalone first before adding as a Hook Link."
-                )
-                return
-        
-        response = self.send_ipc_command("add_persistent_link", {
-            "hook_event_name": hook_event_name,
-            "pattern_name": pattern_name
-        })
-        
-        if response.get("ok"):
-            self.status_bar.showMessage(f"Added hook link: {hook_event_name} → {pattern_name}", 3000)
-            self.refresh_startup_links()
-        else:
-            QMessageBox.critical(self, "Error", f"Failed to add link: {response.get('error')}")
-    
-    def remove_startup_link(self):
-        """Remove the selected persistent link."""
-        current = self.startup_links_list.currentItem()
-        if not current:
-            QMessageBox.warning(self, "No Selection", "Please select a link to remove.")
-            return
-        
-        text = current.text()
-        if text == "(No hook links configured)":
-            return
-        
-        # Extract hook event name (everything before the arrow)
-        if " → " in text:
-            hook_event_name = text.split(" → ")[0]
-        else:
-            return
-        
-        reply = QMessageBox.question(
-            self, "Confirm", f"Remove link: {text}?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            response = self.send_ipc_command("remove_persistent_link", {
-                "hook_event_name": hook_event_name
-            })
-            
-            if response.get("ok"):
-                self.status_bar.showMessage(f"Removed link: {hook_event_name}", 3000)
-                self.refresh_startup_links()
-            else:
-                QMessageBox.critical(self, "Error", f"Failed to remove link: {response.get('error')}")
-
-    def add_pattern_to_startup(self):
-        """Add a standalone pattern to startup (no hook required)."""
-        pattern_item = self.test_patterns_list.currentItem()
-        
-        if not pattern_item:
-            QMessageBox.warning(self, "No Pattern Selected", "Please select a pattern from the Available Patterns list.")
-            return
-        
-        pattern_name = pattern_item.text()
-        
-        # Check if pattern is already in hook links
+        # Refresh running hooks - show only hooks that have patterns linked
         response = self.send_ipc_command("list_persistent_links")
         if response.get("ok"):
             links = response.get("result", {})
-            for hook_event, linked_pattern in links.items():
-                if linked_pattern == pattern_name:
-                    QMessageBox.warning(
-                        self, "Conflict",
-                        f"Pattern '{pattern_name}' is already linked to hook '{hook_event}'.\n"
-                        f"Remove the hook link first before adding as Standalone."
-                    )
-                    return
+            # Filter to only show hooks that have patterns (not null)
+            active_hooks = [hook for hook, pattern in links.items() if pattern is not None]
+            if active_hooks:
+                self.running_hooks_label.setText(f"Running Hooks: {', '.join(active_hooks)}")
+                self.running_hooks_label.setStyleSheet("color: green;")
+            else:
+                self.running_hooks_label.setText("Running Hooks: None")
+                self.running_hooks_label.setStyleSheet("color: gray;")
+    
+    def populate_test_patterns(self):
+        """Populate the test patterns section with individual Start/Stop buttons."""
+        # Clear existing buttons
+        while self.test_patterns_container.count():
+            item = self.test_patterns_container.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                self.clear_layout(item.layout())
         
-        response = self.send_ipc_command("add_pattern_to_startup", {
-            "pattern_name": pattern_name
-        })
+        self.test_pattern_buttons.clear()
+        
+        # Create a row for each pattern
+        for pattern in self.patterns:
+            row_layout = QHBoxLayout()
+            
+            # Pattern name label
+            pattern_label = QLabel(pattern)
+            pattern_label.setMinimumWidth(200)
+            row_layout.addWidget(pattern_label)
+            
+            row_layout.addStretch()
+            
+            # Start button
+            start_btn = QPushButton("Start")
+            start_btn.setFixedWidth(80)
+            start_btn.clicked.connect(lambda checked, p=pattern: self.start_test_pattern(p))
+            row_layout.addWidget(start_btn)
+            
+            # Stop button
+            stop_btn = QPushButton("Stop")
+            stop_btn.setFixedWidth(80)
+            stop_btn.setEnabled(False)
+            stop_btn.clicked.connect(lambda checked, p=pattern: self.stop_test_pattern(p))
+            row_layout.addWidget(stop_btn)
+            
+            self.test_patterns_container.addLayout(row_layout)
+            self.test_pattern_buttons[pattern] = (start_btn, stop_btn)
+    
+    def clear_layout(self, layout):
+        """Recursively clear a layout."""
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                self.clear_layout(item.layout())
+    
+    def populate_pattern_dropdown(self):
+        """Populate the pattern dropdown in Select Patterns section."""
+        self.pattern_dropdown.blockSignals(True)
+        current_text = self.pattern_dropdown.currentText()
+        self.pattern_dropdown.clear()
+        self.pattern_dropdown.addItem("(Select a pattern)")
+        
+        for pattern in self.patterns:
+            self.pattern_dropdown.addItem(pattern)
+        
+        # Restore selection if it exists
+        index = self.pattern_dropdown.findText(current_text)
+        if index >= 0:
+            self.pattern_dropdown.setCurrentIndex(index)
+        
+        self.pattern_dropdown.blockSignals(False)
+    
+    def populate_hook_dropdown(self):
+        """Populate the hook dropdown in Configure Options."""
+        self.hook_dropdown.blockSignals(True)
+        current_text = self.hook_dropdown.currentText()
+        self.hook_dropdown.clear()
+        self.hook_dropdown.addItem("(Select a hook)")
+        
+        # Filter out test_trigger from the dropdown
+        for hook in self.hooks:
+            if hook != "test_trigger":
+                self.hook_dropdown.addItem(hook)
+        
+        # Restore selection if it exists
+        index = self.hook_dropdown.findText(current_text)
+        if index >= 0:
+            self.hook_dropdown.setCurrentIndex(index)
+        
+        self.hook_dropdown.blockSignals(False)
+    
+    def start_test_pattern(self, pattern_name):
+        """Start a test pattern."""
+        response = self.send_ipc_command("start_pattern", {"name": pattern_name})
         
         if response.get("ok"):
-            self.status_bar.showMessage(f"Added pattern to startup: {pattern_name}", 3000)
-            self.refresh_startup_links()
+            self.running_test_pattern = pattern_name
+            self.status_bar.showMessage(f"Started test pattern: {pattern_name}", 3000)
+            
+            # Update button states
+            if pattern_name in self.test_pattern_buttons:
+                start_btn, stop_btn = self.test_pattern_buttons[pattern_name]
+                start_btn.setEnabled(False)
+                stop_btn.setEnabled(True)
+            
+            # Disable all other start buttons
+            for p, (start_btn, stop_btn) in self.test_pattern_buttons.items():
+                if p != pattern_name:
+                    start_btn.setEnabled(False)
+            
+            self.refresh_status()
         else:
-            QMessageBox.critical(self, "Error", f"Failed to add pattern: {response.get('error')}")
-
-    def remove_pattern_from_startup(self):
-        """Remove a standalone pattern from startup."""
-        current = self.startup_patterns_list.currentItem()
-        if not current:
-            QMessageBox.warning(self, "No Selection", "Please select a pattern to remove.")
+            QMessageBox.critical(self, "Error", f"Failed to start pattern: {response.get('error')}")
+    
+    def stop_test_pattern(self, pattern_name):
+        """Stop a test pattern."""
+        response = self.send_ipc_command("stop_pattern")
+        
+        if response.get("ok"):
+            self.running_test_pattern = None
+            self.status_bar.showMessage(f"Stopped test pattern: {pattern_name}", 3000)
+            
+            # Update button states - enable all start buttons, disable all stop buttons
+            for p, (start_btn, stop_btn) in self.test_pattern_buttons.items():
+                start_btn.setEnabled(True)
+                stop_btn.setEnabled(False)
+            
+            self.refresh_status()
+        else:
+            QMessageBox.critical(self, "Error", f"Failed to stop pattern: {response.get('error')}")
+    
+    def on_test_hook_changed(self, state):
+        """Handle Test Hook checkbox state change."""
+        if state == Qt.Checked:
+            # Trigger test hook
+            response = self.send_ipc_command("trigger_test_hook")
+            if response.get("ok"):
+                self.status_bar.showMessage("Test hook triggered", 3000)
+            else:
+                QMessageBox.critical(self, "Error", f"Failed to trigger test hook: {response.get('error')}")
+                self.test_hook_checkbox.setChecked(False)
+        # Note: Unchecking doesn't do anything special
+    
+    def on_ok_clicked(self):
+        """Handle OK button click - save configuration and close app."""
+        pattern_name = self.pattern_dropdown.currentText()
+        hook_name = self.hook_dropdown.currentText()
+        
+        # Check if nothing is selected
+        if pattern_name == "(Select a pattern)":
+            # Nothing selected, just close the app
+            self.close()
             return
         
-        pattern_name = current.text()
-        if pattern_name == "(No standalone patterns configured)":
+        # Pattern is selected - determine if hook is also selected
+        hook_selected = hook_name != "(Select a hook)"
+        
+        # Validate: if hook is selected, pattern must be selected (already validated above)
+        # But we also need to check the reverse: if hook selected but no pattern
+        if hook_selected and pattern_name == "(Select a pattern)":
+            QMessageBox.warning(self, "Validation Error", "Please select a pattern to go with the hook.")
             return
         
-        reply = QMessageBox.question(
-            self, "Confirm", f"Remove pattern from startup: {pattern_name}?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
+        # CLEAR ALL EXISTING CONFIGURATIONS FIRST
+        # This ensures only ONE configuration exists at a time
         
-        if reply == QMessageBox.Yes:
-            response = self.send_ipc_command("remove_pattern_from_startup", {
+        # 1. Remove ALL hook links
+        response = self.send_ipc_command("list_persistent_links")
+        if response.get("ok"):
+            existing_links = response.get("result", {})
+            for existing_hook in list(existing_links.keys()):
+                remove_response = self.send_ipc_command("remove_persistent_link", {
+                    "hook_event_name": existing_hook
+                })
+                if not remove_response.get("ok"):
+                    QMessageBox.critical(self, "Error", 
+                        f"Failed to clear existing configuration: {remove_response.get('error')}")
+                    return
+        
+        # 2. Remove ALL standalone patterns
+        response = self.send_ipc_command("list_startup_patterns")
+        if response.get("ok"):
+            existing_standalone = response.get("result", [])
+            for existing_pattern in existing_standalone:
+                remove_response = self.send_ipc_command("remove_pattern_from_startup", {
+                    "pattern_name": existing_pattern
+                })
+                if not remove_response.get("ok"):
+                    QMessageBox.critical(self, "Error", 
+                        f"Failed to clear existing configuration: {remove_response.get('error')}")
+                    return
+        
+        # NOW SAVE THE NEW SINGLE CONFIGURATION
+        if hook_selected:
+            # Save as hook-linked pattern
+            response = self.send_ipc_command("add_persistent_link", {
+                "hook_event_name": hook_name,
                 "pattern_name": pattern_name
             })
             
-            if response.get("ok"):
-                self.status_bar.showMessage(f"Removed pattern from startup: {pattern_name}", 3000)
-                self.refresh_startup_links()
+            if not response.get("ok"):
+                QMessageBox.critical(self, "Error", f"Failed to save configuration: {response.get('error')}")
+                return
+            
+            # Start the pattern immediately
+            start_response = self.send_ipc_command("start_pattern", {"name": pattern_name})
+            
+            if start_response.get("ok"):
+                QMessageBox.information(
+                    self, "Success",
+                    f"Configuration saved!\n\n"
+                    f"Pattern: {pattern_name}\n"
+                    f"Hook: {hook_name}\n\n"
+                    f"Pattern started and will run on reboot when the hook triggers."
+                )
             else:
-                QMessageBox.critical(self, "Error", f"Failed to remove pattern: {response.get('error')}")
-
-    def on_startup_mode_changed(self):
-        """Handle pattern selection from dropdown - update configuration options."""
-        pattern_name = self.startup_mode_dropdown.currentText()
-        
-        if pattern_name == "(Select a pattern)":
-            self.hook_start_btn.setEnabled(False)
-            self.hook_remove_btn.setEnabled(False)
-            self.standalone_start_btn.setEnabled(False)
-            self.standalone_remove_btn.setEnabled(False)
-            self.startup_status_label.setText("")
-            return
-        
-        self.current_pattern = pattern_name
-        
-        # Check if pattern is in hook links
-        is_in_hook_links = any(p == pattern_name for p in self.hook_links.values())
-        
-        # Check if pattern is in standalone
-        is_in_standalone = pattern_name in self.startup_patterns
-        
-        # Update status label
-        if is_in_hook_links:
-            hook_name = [h for h, p in self.hook_links.items() if p == pattern_name][0]
-            self.startup_status_label.setText(
-                f"✓ Currently linked to {hook_name} and auto-starts on boot"
-            )
-            self.hook_remove_btn.setEnabled(True)
-            self.hook_start_btn.setEnabled(False)
-            self.hook_start_btn.setText("Start & Auto-start on Boot")
-            self.standalone_start_btn.setEnabled(False)
-            self.standalone_remove_btn.setEnabled(False)
-            self.standalone_start_btn.setText("Start & Auto-start on Boot")
-        elif is_in_standalone:
-            self.startup_status_label.setText(
-                f"✓ Currently standalone and auto-starts on boot"
-            )
-            self.standalone_remove_btn.setEnabled(True)
-            self.standalone_start_btn.setEnabled(False)
-            self.standalone_start_btn.setText("Start & Auto-start on Boot")
-            self.hook_start_btn.setEnabled(False)
-            self.hook_remove_btn.setEnabled(False)
-            self.hook_start_btn.setText("Start & Auto-start on Boot")
+                QMessageBox.warning(
+                    self, "Partial Success",
+                    f"Configuration saved but failed to start pattern: {start_response.get('error')}"
+                )
         else:
-            self.startup_status_label.setText(f"Not configured yet")
-            self.hook_start_btn.setEnabled(True)
-            self.hook_start_btn.setText("Start & Auto-start on Boot")
-            self.standalone_start_btn.setEnabled(True)
-            self.standalone_start_btn.setText("Start & Auto-start on Boot")
-            self.hook_remove_btn.setEnabled(False)
-            self.standalone_remove_btn.setEnabled(False)
-
-    def add_startup_link_with_start(self):
-        """Add hook link and immediately start the pattern."""
-        if not self.current_pattern:
-            QMessageBox.warning(self, "No Pattern", "Please select a pattern first.")
-            return
+            # Save as standalone pattern
+            response = self.send_ipc_command("add_pattern_to_startup", {
+                "pattern_name": pattern_name
+            })
+            
+            if not response.get("ok"):
+                QMessageBox.critical(self, "Error", f"Failed to save configuration: {response.get('error')}")
+                return
+            
+            # Start the pattern immediately
+            start_response = self.send_ipc_command("start_pattern", {"name": pattern_name})
+            
+            if start_response.get("ok"):
+                QMessageBox.information(
+                    self, "Success",
+                    f"Configuration saved!\n\n"
+                    f"Pattern: {pattern_name}\n\n"
+                    f"Pattern started and will run on reboot."
+                )
+            else:
+                QMessageBox.warning(
+                    self, "Partial Success",
+                    f"Configuration saved but failed to start pattern: {start_response.get('error')}"
+                )
         
-        hook_name = self.hook_dropdown.currentText()
-        if hook_name == "(Select a hook)":
-            QMessageBox.warning(self, "No Hook", "Please select a hook.")
-            return
-        
-        pattern_name = self.current_pattern
-        
-        # Check if pattern is already in standalone
-        if pattern_name in self.startup_patterns:
-            QMessageBox.warning(
-                self, "Conflict",
-                f"Pattern '{pattern_name}' is already configured as Standalone.\n"
-                f"Remove it first to add as Hook Link."
-            )
-            return
-        
-        # Add persistent link
-        response = self.send_ipc_command("add_persistent_link", {
-            "hook_event_name": hook_name,
-            "pattern_name": pattern_name
-        })
-        
-        if not response.get("ok"):
-            QMessageBox.critical(self, "Error", f"Failed to add link: {response.get('error')}")
-            return
-        
-        # Start the pattern immediately
-        response = self.send_ipc_command("start_pattern", {"name": pattern_name})
-        
-        if response.get("ok"):
-            self.status_bar.showMessage(
-                f"✓ Started {pattern_name} (linked to {hook_name}, auto-starts on boot)", 5000
-            )
-            self.hook_start_btn.setText("✓ Running")
-            self.hook_start_btn.setEnabled(False)
-            self.hook_remove_btn.setEnabled(True)
-            self.refresh_startup_links()
-            self.refresh_status()
-        else:
-            QMessageBox.critical(self, "Error", f"Failed to start pattern: {response.get('error')}")
-
-    def remove_startup_link_with_stop(self):
-        """Remove hook link and stop the pattern."""
-        if not self.current_pattern:
-            return
-        
-        pattern_name = self.current_pattern
-        hook_name = [h for h, p in self.hook_links.items() if p == pattern_name]
-        
-        if not hook_name:
-            QMessageBox.warning(self, "Not Found", f"Pattern not linked to any hook.")
-            return
-        
-        hook_name = hook_name[0]
-        
-        reply = QMessageBox.question(
-            self, "Confirm",
-            f"Remove '{pattern_name}' from hook link and stop it?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
-        
-        if reply != QMessageBox.Yes:
-            return
-        
-        # Remove link
-        response = self.send_ipc_command("remove_persistent_link", {
-            "hook_event_name": hook_name
-        })
-        
-        if not response.get("ok"):
-            QMessageBox.critical(self, "Error", f"Failed to remove link: {response.get('error')}")
-            return
-        
-        # Stop pattern
-        response = self.send_ipc_command("stop_pattern")
-        
-        if response.get("ok"):
-            self.status_bar.showMessage(f"Removed hook link and stopped pattern", 3000)
-            self.hook_start_btn.setText("Start & Auto-start on Boot")
-            self.hook_remove_btn.setEnabled(False)
-            self.hook_start_btn.setEnabled(True)
-            self.refresh_startup_links()
-            self.refresh_status()
-        else:
-            QMessageBox.critical(self, "Error", f"Failed to stop pattern: {response.get('error')}")
-
-    def add_pattern_to_startup_with_start(self):
-        """Add standalone pattern and immediately start it."""
-        if not self.current_pattern:
-            QMessageBox.warning(self, "No Pattern", "Please select a pattern first.")
-            return
-        
-        pattern_name = self.current_pattern
-        
-        # Check if pattern is already in hook links
-        if any(p == pattern_name for p in self.hook_links.values()):
-            QMessageBox.warning(
-                self, "Conflict",
-                f"Pattern '{pattern_name}' is already linked to a hook.\n"
-                f"Remove the hook link first to add as Standalone."
-            )
-            return
-        
-        # Add to startup
-        response = self.send_ipc_command("add_pattern_to_startup", {
-            "pattern_name": pattern_name
-        })
-        
-        if not response.get("ok"):
-            QMessageBox.critical(self, "Error", f"Failed to add pattern: {response.get('error')}")
-            return
-        
-        # Start the pattern immediately
-        response = self.send_ipc_command("start_pattern", {"name": pattern_name})
-        
-        if response.get("ok"):
-            self.status_bar.showMessage(
-                f"✓ Started {pattern_name} (standalone, auto-starts on boot)", 5000
-            )
-            self.standalone_start_btn.setText("✓ Running")
-            self.standalone_start_btn.setEnabled(False)
-            self.standalone_remove_btn.setEnabled(True)
-            self.refresh_startup_links()
-        else:
-            QMessageBox.critical(self, "Error", f"Failed to start pattern: {response.get('error')}")
-
-    def remove_pattern_from_startup_with_stop(self):
-        """Remove standalone pattern and stop it."""
-        if not self.current_pattern:
-            return
-        
-        pattern_name = self.current_pattern
-        
-        if pattern_name not in self.startup_patterns:
-            QMessageBox.warning(self, "Not Found", f"Pattern not in standalone configuration.")
-            return
-        
-        reply = QMessageBox.question(
-            self, "Confirm",
-            f"Remove '{pattern_name}' from startup and stop it?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
-        
-        if reply != QMessageBox.Yes:
-            return
-        
-        # Remove from startup
-        response = self.send_ipc_command("remove_pattern_from_startup", {
-            "pattern_name": pattern_name
-        })
-        
-        if not response.get("ok"):
-            QMessageBox.critical(self, "Error", f"Failed to remove pattern: {response.get('error')}")
-            return
-        
-        # Stop pattern
-        response = self.send_ipc_command("stop_pattern")
-        
-        if response.get("ok"):
-            self.status_bar.showMessage(f"Removed pattern from startup and stopped it", 3000)
-            self.standalone_start_btn.setText("Start & Auto-start on Boot")
-            self.standalone_remove_btn.setEnabled(False)
-            self.standalone_start_btn.setEnabled(True)
-            self.refresh_startup_links()
-        else:
-            QMessageBox.critical(self, "Error", f"Failed to stop pattern: {response.get('error')}")
-
+        # Close the application
+        self.close()
 
 
 def main():

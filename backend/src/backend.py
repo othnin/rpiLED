@@ -282,9 +282,13 @@ class PatternManager:
                             except queue.Full:
                                 print(f"Alert queue full, message from {hook.event_name} dropped")
                     
+                    # Only start the linked pattern if it's not already running
                     if linked_pattern and linked_pattern in self.patterns:
-                        print(f"Starting linked pattern: {linked_pattern}")
-                        self.start_pattern(linked_pattern)
+                        if not self.current_pattern or self.current_pattern.name != linked_pattern:
+                            print(f"Starting linked pattern: {linked_pattern}")
+                            self.start_pattern(linked_pattern)
+                        else:
+                            print(f"Pattern {linked_pattern} already running, sending alert only")
             except Exception as e:
                 print(f"Error checking hook {hook.event_name}: {e}")
     
