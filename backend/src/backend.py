@@ -76,11 +76,34 @@ class SystemEventHook(ABC):
         return None
 
 
+class BrightnessNeoWrapper:
+    """Wrapper around Pi5Neo that applies brightness scaling to all LED operations"""
+    
+    def __init__(self, neo, manager):
+        self._neo = neo
+        self._manager = manager
+    
+    def __getattr__(self, name):
+        """Pass through all other attributes to the underlying neo object"""
+        return getattr(self._neo, name)
+    
+    def set_led_color(self, led_index, r, g, b):
+        """Set LED color with brightness scaling applied"""
+        r_scaled, g_scaled, b_scaled = self._manager.apply_brightness(r, g, b)
+        self._neo.set_led_color(led_index, r_scaled, g_scaled, b_scaled)
+    
+    def fill_strip(self, r, g, b):
+        """Fill strip with brightness scaling applied"""
+        r_scaled, g_scaled, b_scaled = self._manager.apply_brightness(r, g, b)
+        self._neo.fill_strip(r_scaled, g_scaled, b_scaled)
+
+
 class PatternManager:
     """Manages pattern plugins and system hooks"""
     
     def __init__(self, neo, patterns_dir: str = "./patterns", hooks_dir: str = "./hooks"):
-        self.neo = neo
+        self.neo_raw = neo  # Store raw neo object
+        self.neo = BrightnessNeoWrapper(neo, self)  # Wrap it with brightness control
         self.patterns_dir = Path(patterns_dir)
         self.hooks_dir = Path(hooks_dir)
         self.patterns: Dict[str, PatternBase] = {}
@@ -91,6 +114,7 @@ class PatternManager:
         self.startup_patterns = []
         self.startup_links = {}
         self.alert_queue = queue.Queue()  # Queue for hook messages to patterns
+        self.brightness = 100  # Brightness level (0-100)
         
         # Create directories if they don't exist
         self.patterns_dir.mkdir(exist_ok=True)
@@ -360,7 +384,7 @@ class PatternManager:
         return []
     
     def load_persistent_data(self) -> dict:
-        """Load all persistent data (linked patterns and standalone patterns)"""
+        """Load all persistent data (linked patterns, standalone patterns, and brightness)"""
         try:
             hook_file = os.path.join(PATTERN_LOCATION, HOOK_FILE)
             if os.path.exists(hook_file):
@@ -374,16 +398,25 @@ class PatternManager:
                         # vs new format (has "linked" and "standalone" keys)
                         if "linked" not in data and "standalone" not in data:
                             # Old format - convert to new format
-                            data = {"linked": data, "standalone": []}
+                            data = {"linked": data, "standalone": [], "brightness": 100}
+                        # Ensure brightness key exists
+                        if "brightness" not in data:
+                            data["brightness"] = 100
+                        # Load brightness into manager
+                        self.brightness = data.get("brightness", 100)
                     return data
         except Exception as e:
             print(f"Error loading persistent data: {e}")
-        return {"linked": {}, "standalone": []}
+        return {"linked": {}, "standalone": [], "brightness": 100}
     
     def _write_persistent_data(self, data: dict):
         """Write persistent data to file"""
         hook_file = os.path.join(PATTERN_LOCATION, HOOK_FILE)
         os.makedirs(PATTERN_LOCATION, exist_ok=True)
+        
+        # Ensure brightness is included in data
+        if "brightness" not in data:
+            data["brightness"] = self.brightness
         
         with open(hook_file, 'w') as f:
             import json
@@ -437,6 +470,30 @@ class PatternManager:
             print(f"No startup patterns file found at {filepath}")
         except Exception as e:
             print(f"Error loading startup patterns: {e}")
+    
+    def set_brightness(self, value: int):
+        """Set brightness level (0-100) and persist it"""
+        if not 0 <= value <= 100:
+            raise ValueError("Brightness must be between 0 and 100")
+        self.brightness = value
+        print(f"Brightness set to: {value}%")
+        
+        # Persist brightness immediately
+        try:
+            data = self.load_persistent_data()
+            data["brightness"] = value
+            self._write_persistent_data(data)
+        except Exception as e:
+            print(f"Error persisting brightness: {e}")
+    
+    def get_brightness(self) -> int:
+        """Get current brightness level (0-100)"""
+        return self.brightness
+    
+    def apply_brightness(self, r: int, g: int, b: int) -> tuple:
+        """Apply brightness scaling to RGB values"""
+        scale = self.brightness / 100.0
+        return (int(r * scale), int(g * scale), int(b * scale))
 
 
 # Example usage and testing

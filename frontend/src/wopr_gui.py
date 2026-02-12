@@ -8,7 +8,7 @@ import socket
 import json
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QGroupBox, QMessageBox, QStatusBar, QComboBox, QCheckBox
+    QPushButton, QLabel, QGroupBox, QMessageBox, QStatusBar, QComboBox, QCheckBox, QSlider
 )
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QFont
@@ -30,7 +30,11 @@ class WOPRControlGUI(QMainWindow):
         # Create central widget and main layout
         central = QWidget()
         self.setCentralWidget(central)
-        layout = QVBoxLayout(central)
+        main_layout = QHBoxLayout(central)
+        
+        # Left side: main content
+        layout = QVBoxLayout()
+        main_layout.addLayout(layout)
         
         # Status bar
         self.status_bar = QStatusBar()
@@ -153,6 +157,36 @@ class WOPRControlGUI(QMainWindow):
         
         layout.addStretch()
         
+        # ===== RIGHT SIDE: BRIGHTNESS CONTROL =====
+        brightness_panel = QVBoxLayout()
+        brightness_panel.addStretch()
+        
+        # Brightness label
+        self.brightness_label = QLabel("Brightness: 100%")
+        brightness_label_font = QFont()
+        brightness_label_font.setBold(True)
+        brightness_label_font.setPointSize(10)
+        self.brightness_label.setFont(brightness_label_font)
+        self.brightness_label.setAlignment(Qt.AlignCenter)
+        brightness_panel.addWidget(self.brightness_label)
+        
+        brightness_panel.addSpacing(10)
+        
+        # Vertical brightness slider
+        self.brightness_slider = QSlider(Qt.Vertical)
+        self.brightness_slider.setMinimum(0)
+        self.brightness_slider.setMaximum(100)
+        self.brightness_slider.setValue(100)
+        self.brightness_slider.setTickPosition(QSlider.TicksRight)
+        self.brightness_slider.setTickInterval(10)
+        self.brightness_slider.setMinimumHeight(300)
+        self.brightness_slider.valueChanged.connect(self.on_brightness_changed)
+        brightness_panel.addWidget(self.brightness_slider)
+        
+        brightness_panel.addStretch()
+        
+        main_layout.addLayout(brightness_panel)
+        
         # Auto-refresh timer
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.refresh_status)
@@ -162,9 +196,14 @@ class WOPRControlGUI(QMainWindow):
         self.refresh_all()
     
     def closeEvent(self, event):
-        """Handle application close - stop any running test pattern."""
+        """Handle application close - stop any running test pattern and save brightness."""
         if self.running_test_pattern:
             self.send_ipc_command("stop_pattern")
+        
+        # Save current brightness
+        current_brightness = self.brightness_slider.value()
+        self.send_ipc_command("set_brightness", {"value": current_brightness})
+        
         event.accept()
     
     def send_ipc_command(self, action, params=None):
@@ -231,7 +270,7 @@ class WOPRControlGUI(QMainWindow):
             self.populate_hook_dropdown()
     
     def refresh_status(self):
-        """Refresh the current pattern status."""
+        """Refresh the current pattern status and brightness."""
         response = self.send_ipc_command("status")
         if response.get("ok"):
             result = response.get("result", {})
@@ -242,6 +281,13 @@ class WOPRControlGUI(QMainWindow):
             else:
                 self.current_pattern_label.setText("Current Pattern: None")
                 self.current_pattern_label.setStyleSheet("color: gray;")
+            
+            # Update brightness slider from backend
+            brightness = result.get("brightness", 100)
+            self.brightness_slider.blockSignals(True)
+            self.brightness_slider.setValue(brightness)
+            self.brightness_label.setText(f"Brightness: {brightness}%")
+            self.brightness_slider.blockSignals(False)
         
         # Refresh running hooks - show only hooks that have patterns linked
         response = self.send_ipc_command("list_persistent_links")
@@ -392,6 +438,15 @@ class WOPRControlGUI(QMainWindow):
                 self.test_hook_checkbox.setChecked(False)
         # Note: Unchecking doesn't do anything special
     
+    def on_brightness_changed(self, value):
+        """Handle brightness slider change - update in real-time."""
+        self.brightness_label.setText(f"Brightness: {value}%")
+        
+        # Send brightness update to backend immediately
+        response = self.send_ipc_command("set_brightness", {"value": value})
+        if not response.get("ok"):
+            self.status_bar.showMessage(f"Failed to set brightness: {response.get('error')}", 3000)
+    
     def on_ok_clicked(self):
         """Handle OK button click - save configuration and close app."""
         pattern_name = self.pattern_dropdown.currentText()
@@ -453,6 +508,10 @@ class WOPRControlGUI(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to save configuration: {response.get('error')}")
                 return
             
+            # Save brightness before starting pattern
+            current_brightness = self.brightness_slider.value()
+            self.send_ipc_command("set_brightness", {"value": current_brightness})
+            
             # Start the pattern immediately
             start_response = self.send_ipc_command("start_pattern", {"name": pattern_name})
             
@@ -461,7 +520,8 @@ class WOPRControlGUI(QMainWindow):
                     self, "Success",
                     f"Configuration saved!\n\n"
                     f"Pattern: {pattern_name}\n"
-                    f"Hook: {hook_name}\n\n"
+                    f"Hook: {hook_name}\n"
+                    f"Brightness: {current_brightness}%\n\n"
                     f"Pattern started and will run on reboot when the hook triggers."
                 )
             else:
@@ -479,6 +539,10 @@ class WOPRControlGUI(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Failed to save configuration: {response.get('error')}")
                 return
             
+            # Save brightness before starting pattern
+            current_brightness = self.brightness_slider.value()
+            self.send_ipc_command("set_brightness", {"value": current_brightness})
+            
             # Start the pattern immediately
             start_response = self.send_ipc_command("start_pattern", {"name": pattern_name})
             
@@ -486,7 +550,8 @@ class WOPRControlGUI(QMainWindow):
                 QMessageBox.information(
                     self, "Success",
                     f"Configuration saved!\n\n"
-                    f"Pattern: {pattern_name}\n\n"
+                    f"Pattern: {pattern_name}\n"
+                    f"Brightness: {current_brightness}%\n\n"
                     f"Pattern started and will run on reboot."
                 )
             else:

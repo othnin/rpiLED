@@ -164,7 +164,8 @@ class IPCServer(threading.Thread):
 
             if action == "status":
                 cur = self.manager.current_pattern.name if self.manager.current_pattern else None
-                return {"ok": True, "result": {"current_pattern": cur}}
+                brightness = self.manager.get_brightness()
+                return {"ok": True, "result": {"current_pattern": cur, "brightness": brightness}}
 
             if action == "save_pattern":
                 name = params.get("name")
@@ -172,6 +173,21 @@ class IPCServer(threading.Thread):
                     return {"ok": False, "error": "missing name"}
                 self.manager.save_pattern(name)
                 return {"ok": True, "result": "saved"}
+
+            if action == "set_brightness":
+                value = params.get("value")
+                if value is None:
+                    return {"ok": False, "error": "missing value"}
+                try:
+                    value = int(value)
+                    self.manager.set_brightness(value)
+                    return {"ok": True, "result": f"brightness set to {value}"}
+                except ValueError as e:
+                    return {"ok": False, "error": str(e)}
+
+            if action == "get_brightness":
+                brightness = self.manager.get_brightness()
+                return {"ok": True, "result": brightness}
 
 
             if action == "register_startup":
