@@ -112,7 +112,6 @@ log_info "Enabling SPI interface..."
 if ! grep -q "^dtparam=spi=on" /boot/firmware/config.txt; then
     echo "dtparam=spi=on" >> /boot/firmware/config.txt
     log_warning "SPI enabled. A reboot will be required after installation."
-    NEEDS_REBOOT=1
 else
     log_info "SPI already enabled"
 fi
@@ -251,6 +250,9 @@ fi
 # Update paths in desktop file to match installation directory
 sed -i "s|/opt/WOPR|$INSTALL_DIR|g" "$INSTALL_DIR/frontend/src/wopr-control.desktop"
 
+# Use bash explicitly to avoid file manager security prompts
+sed -i "s|^Exec=|Exec=bash |g" "$INSTALL_DIR/frontend/src/wopr-control.desktop"
+
 # Install desktop file to user's applications
 mkdir -p /home/$SERVICE_USER/.local/share/applications
 cp "$INSTALL_DIR/frontend/src/wopr-control.desktop" /home/$SERVICE_USER/.local/share/applications/
@@ -315,23 +317,18 @@ echo
 log_info "Installation directory: $INSTALL_DIR"
 log_info "Service status: systemctl status wopr.service"
 log_info "Service logs: journalctl -u wopr.service -f"
-log_info "GUI launcher: Applications menu → WOPR LED Control"
+log_info "GUI launcher: Desktop → WOPR LED Control"
 echo
 
-if [ "${NEEDS_REBOOT}" = "1" ]; then
-    echo -e "${YELLOW}╔════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${YELLOW}║  REBOOT REQUIRED for SPI changes to take effect!      ║${NC}"
-    echo -e "${YELLOW}╚════════════════════════════════════════════════════════╝${NC}"
-    echo
-    read -p "Reboot now? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        log_info "Rebooting..."
-        reboot
-    fi
-else
-    log_success "Installation complete! No reboot required."
-    log_info "You can now launch the WOPR Control GUI from the Applications menu"
+echo -e "${YELLOW}╔════════════════════════════════════════════════════════╗${NC}"
+echo -e "${YELLOW}║  REBOOT REQUIRED for changes to take effect!          ║${NC}"
+echo -e "${YELLOW}╚════════════════════════════════════════════════════════╝${NC}"
+echo
+read -p "Reboot now? (y/N) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    log_info "Rebooting..."
+    reboot
 fi
 
 exit 0
