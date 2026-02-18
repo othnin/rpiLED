@@ -127,20 +127,6 @@ fi
 # ============================================================================
 log_info "Cloning WOPR repository..."
 
-if [ -d "$INSTALL_DIR" ]; then
-    log_warning "Installation directory already exists"
-    read -p "Remove existing installation and reinstall? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        # Stop service if running
-        systemctl stop wopr.service 2>/dev/null || true
-        rm -rf "$INSTALL_DIR"
-    else
-        log_info "Installation cancelled"
-        exit 0
-    fi
-fi
-
 git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR"
 log_success "Repository cloned"
 
@@ -268,7 +254,9 @@ sed -i "s|/opt/WOPR|$INSTALL_DIR|g" "$INSTALL_DIR/frontend/src/wopr-control.desk
 # Install desktop file to user's applications
 mkdir -p /home/$SERVICE_USER/.local/share/applications
 cp "$INSTALL_DIR/frontend/src/wopr-control.desktop" /home/$SERVICE_USER/.local/share/applications/
+chmod +x /home/$SERVICE_USER/.local/share/applications/wopr-control.desktop
 chown "$SERVICE_USER:$SERVICE_USER" /home/$SERVICE_USER/.local/share/applications/wopr-control.desktop
+sudo -u "$SERVICE_USER" gio set /home/$SERVICE_USER/.local/share/applications/wopr-control.desktop metadata::trusted true 2>/dev/null || true
 
 log_success "Desktop file installed"
 
