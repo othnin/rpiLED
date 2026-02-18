@@ -252,9 +252,6 @@ fi
 # Update paths in desktop file to match installation directory
 sed -i "s|/opt/WOPR|$INSTALL_DIR|g" "$INSTALL_DIR/frontend/src/wopr-control.desktop"
 
-# Use bash explicitly to avoid file manager security prompts
-sed -i "s|^Exec=|Exec=bash |g" "$INSTALL_DIR/frontend/src/wopr-control.desktop"
-
 # Install desktop file to user's applications
 mkdir -p /home/$SERVICE_USER/.local/share/applications
 cp "$INSTALL_DIR/frontend/src/wopr-control.desktop" /home/$SERVICE_USER/.local/share/applications/
