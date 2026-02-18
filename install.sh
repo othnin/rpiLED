@@ -139,7 +139,7 @@ log_info "Setting up permissions..."
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 mkdir -p "$DATA_DIR"
 chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
-
+find "$INSTALL_DIR" -name "*.sh" -exec chmod +x {} \;
 log_success "Permissions set"
 
 # ============================================================================
