@@ -57,7 +57,7 @@ echo -e "${NC}"
 # Check if running on Raspberry Pi
 if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null && ! grep -q "BCM" /proc/cpuinfo 2>/dev/null; then
     log_warning "This doesn't appear to be a Raspberry Pi. Installation may not work correctly."
-    read -p "Continue anyway? (y/N) " -n 1 -r
+    read -p "Continue anyway? (y/N) " REPLY </dev/tty
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         log_info "Continuing installation..."
     else
@@ -320,10 +320,10 @@ log_info "GUI launcher: Desktop → WOPR LED Control"
 echo
 
 echo -e "${YELLOW}╔════════════════════════════════════════════════════════╗${NC}"
-echo -e "${YELLOW}║  REBOOT REQUIRED for changes to take effect!          ║${NC}"
+echo -e "${YELLOW}║  REBOOT REQUIRED for changes to take effect!           ║${NC}"
 echo -e "${YELLOW}╚════════════════════════════════════════════════════════╝${NC}"
 echo
-read -p "Reboot now? (y/N) " -n 1 -r
+read -p "Reboot now? (y/N) " REPLY </dev/tty
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     log_info "Rebooting..."
     reboot
