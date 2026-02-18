@@ -2,11 +2,9 @@
 Type=Application
 Name=WOPR LED Control
 Comment=Control WOPR LED patterns and hooks
-Exec=bash /opt/WOPR/frontend/src/wopr-control.sh
+Exec=/opt/WOPR/frontend/venv/bin/python /opt/WOPR/frontend/src/wopr_gui.py
 Icon=/opt/WOPR/frontend/src/wopr-icon.png
 Terminal=false
 Categories=Utility;System;Settings;
 Keywords=LED;Control;WOPR;Pattern;NeoPixel;
 StartupNotify=true
-
-
