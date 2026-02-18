@@ -58,8 +58,10 @@ echo -e "${NC}"
 if ! grep -q "Raspberry Pi" /proc/cpuinfo 2>/dev/null && ! grep -q "BCM" /proc/cpuinfo 2>/dev/null; then
     log_warning "This doesn't appear to be a Raspberry Pi. Installation may not work correctly."
     read -p "Continue anyway? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Continuing installation..."
+    else
+        log_info "Installation cancelled."
         exit 1
     fi
 fi
@@ -325,10 +327,11 @@ echo -e "${YELLOW}║  REBOOT REQUIRED for changes to take effect!          ║$
 echo -e "${YELLOW}╚════════════════════════════════════════════════════════╝${NC}"
 echo
 read -p "Reboot now? (y/N) " -n 1 -r
-echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     log_info "Rebooting..."
     reboot
+else
+    log_info "Reboot skipped. Please reboot manually to complete installation."
 fi
 
 exit 0
