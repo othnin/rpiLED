@@ -12,6 +12,9 @@ CHASE_COLORS = [
     (255, 50, 50),   # Red
 ]
 
+# How many full chase cycles to show each color before switching
+CYCLES_PER_COLOR = 15
+
 
 class TheaterChasePattern(PatternBase):
     @property
@@ -23,32 +26,44 @@ class TheaterChasePattern(PatternBase):
     def run(self, neo, stop_event, alert_queue=None, color=None):
         num_leds = neo.num_leds
         color_index = 0
-        current_color = color or CHASE_COLORS[0]
-        use_cycle = color is None  # If no color given, cycle through presets
+        alert_color = None        # Set when an alert overrides the color
         offset = 0
+        frame_count = 0           # Counts every rendered frame
 
         while not stop_event.is_set():
+            # Check for alert color override
             if alert_queue:
                 try:
                     msg = alert_queue.get_nowait()
-                    current_color = msg.color
-                    use_cycle = False  # Lock to alert color
-                    print(f"Theater Chase: Color locked to {current_color}")
+                    alert_color = msg.color
+                    print(f"Theater Chase: Color overridden to {alert_color}")
                 except queue.Empty:
                     pass
 
-            neo.fill_strip(0, 0, 0)
+            # Determine which color to use this frame
+            if alert_color:
+                current_color = alert_color
+            elif color:
+                current_color = color
+            else:
+                current_color = CHASE_COLORS[color_index]
 
+            # Render the chase frame
+            neo.fill_strip(0, 0, 0)
             for i in range(offset, num_leds, 3):
                 neo.set_led_color(i, *current_color)
-
             neo.update_strip()
-            offset = (offset + 1) % 3
 
-            # Advance color every full cycle
-            if offset == 0 and use_cycle:
-                color_index = (color_index + 1) % len(CHASE_COLORS)
-                current_color = CHASE_COLORS[color_index]
+            offset = (offset + 1) % 3
+            frame_count += 1
+
+            # Advance to the next preset color after CYCLES_PER_COLOR full 3-frame cycles
+            # Only cycle when not locked to a fixed or alert color
+            if not color and not alert_color:
+                if frame_count >= CYCLES_PER_COLOR * 3:
+                    frame_count = 0
+                    color_index = (color_index + 1) % len(CHASE_COLORS)
+                    print(f"Theater Chase: Advancing to color {CHASE_COLORS[color_index]}")
 
             time.sleep(0.1)
 
