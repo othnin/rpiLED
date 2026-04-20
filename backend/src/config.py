@@ -5,7 +5,7 @@ Stores constants for the NeoPixel system
 
 #LED Strip Configuration
 DEVICE = '/dev/spidev0.0'
-NUM_LEDS = 17
+NUM_LEDS = 18
 SPI_SPEED = 800
 
 # Patterns to start automatically when the PatternManager is initialized.
